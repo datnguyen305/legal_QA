@@ -58,6 +58,7 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1.0)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -109,7 +110,8 @@ def main() -> None:
         block_size=args.block_size,
     ).to(device)
     optimizer = torch.optim.Adadelta(model.parameters(), lr=args.lr)
-    dev_loader = DataLoader(CpgDataset(dev_records), batch_size=args.batch_size)
+    loader_kwargs = {"num_workers": args.num_workers, "pin_memory": device.startswith("cuda")}
+    dev_loader = DataLoader(CpgDataset(dev_records), batch_size=args.batch_size, **loader_kwargs)
     best_dev = None
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
@@ -117,7 +119,7 @@ def main() -> None:
         train_records_epoch = load_cpg_records(
             args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, easy_ratio, seed=23 + epoch
         )
-        train_loader = DataLoader(CpgDataset(train_records_epoch), batch_size=args.batch_size, shuffle=True)
+        train_loader = DataLoader(CpgDataset(train_records_epoch), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
         model.train()
         total = 0.0
         for step, batch in enumerate(train_loader, start=1):

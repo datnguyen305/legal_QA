@@ -58,6 +58,16 @@ values, so this works as expected:
 EPOCHS=5 BATCH_SIZE=8 bash scripts/pipelines/run_equals_pipeline.sh
 ```
 
+To use more CPU during training/data loading, increase worker counts:
+
+```bash
+NUM_WORKERS=8 PREPROCESS_NUM_PROC=8 bash scripts/pipelines/run_equals_pipeline.sh
+NUM_WORKERS=8 bash scripts/pipelines/run_tdsan_pipeline.sh
+```
+
+`NUM_WORKERS` controls PyTorch `DataLoader` workers. `PREPROCESS_NUM_PROC` is
+used by EQUALS for Hugging Face dataset tokenization/preprocessing.
+
 To run a pipeline with a different config file:
 
 ```bash

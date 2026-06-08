@@ -26,6 +26,8 @@
     "train_limit": null,
     "dev_limit": null,
     "device": null,
+    "num_workers": 4,
+    "preprocess_num_proc": 4,
     "skip_train": false
   },
   "predict": {

@@ -56,6 +56,7 @@ def main() -> None:
     parser.add_argument("--ranker-epochs", type=int, default=1)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -149,11 +150,12 @@ def main() -> None:
             }
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    loader_kwargs = {"num_workers": args.num_workers, "pin_memory": device.startswith("cuda")}
     doc_ranker = FeatureRanker().to(device)
     para_ranker = FeatureRanker().to(device)
 
     def train_ranker(model: FeatureRanker, dataset: Dataset, name: str) -> None:
-        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, **loader_kwargs)
         opt = torch.optim.Adam(model.parameters(), lr=args.lr)
         for epoch in range(args.ranker_epochs):
             total = 0.0
@@ -171,8 +173,8 @@ def main() -> None:
     train_ranker(para_ranker, RankDataset(train_records, "para"), "para")
 
     reader = DeepCascadeReader(len(vocab), vocab["<pad>"], hidden=args.hidden).to(device)
-    train_loader = DataLoader(ReaderDataset(train_records), batch_size=args.batch_size, shuffle=True)
-    dev_loader = DataLoader(ReaderDataset(dev_records), batch_size=args.batch_size)
+    train_loader = DataLoader(ReaderDataset(train_records), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(ReaderDataset(dev_records), batch_size=args.batch_size, **loader_kwargs)
     opt = torch.optim.Adam(reader.parameters(), lr=args.lr)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     best_dev = None

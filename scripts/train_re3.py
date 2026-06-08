@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=3e-5)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -83,8 +84,9 @@ def main() -> None:
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = Re3QA(args.base_model, early_layer=args.early_layer, max_candidates=args.max_candidates).to(device)
-    train_loader = DataLoader(Re3Dataset(train_rows), batch_size=args.batch_size, shuffle=True)
-    dev_loader = DataLoader(Re3Dataset(dev_rows), batch_size=args.batch_size)
+    loader_kwargs = {"num_workers": args.num_workers, "pin_memory": device.startswith("cuda")}
+    train_loader = DataLoader(Re3Dataset(train_rows), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(Re3Dataset(dev_rows), batch_size=args.batch_size, **loader_kwargs)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     total_steps = max(1, len(train_loader) * args.epochs)
     scheduler = get_linear_schedule_with_warmup(optimizer, int(total_steps * 0.1), total_steps)

@@ -29,6 +29,7 @@ DEV_LIMIT="${DEV_LIMIT:-}"
 LIMIT="${LIMIT:-}"
 DEVICE="${DEVICE:-}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
+NUM_WORKERS="${NUM_WORKERS:-0}"
 
 mkdir -p "$MODEL_DIR" "$OUTPUT_DIR"
 
@@ -47,6 +48,7 @@ train_args=(
   --max-question-tokens "$MAX_QUESTION_TOKENS"
   --max-context-tokens "$MAX_CONTEXT_TOKENS"
   --hidden "$HIDDEN"
+  --num-workers "$NUM_WORKERS"
 )
 if [[ -n "$TRAIN_LIMIT" ]]; then train_args+=(--train-limit "$TRAIN_LIMIT"); fi
 if [[ -n "$DEV_LIMIT" ]]; then train_args+=(--dev-limit "$DEV_LIMIT"); fi

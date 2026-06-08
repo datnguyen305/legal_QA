@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -119,8 +120,9 @@ def main() -> None:
         max_position=max(args.max_question_tokens, args.max_passage_tokens) + 8,
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    train_loader = DataLoader(TdsanDataset(train_records), batch_size=args.batch_size, shuffle=True)
-    dev_loader = DataLoader(TdsanDataset(dev_records), batch_size=args.batch_size)
+    loader_kwargs = {"num_workers": args.num_workers, "pin_memory": device.startswith("cuda")}
+    train_loader = DataLoader(TdsanDataset(train_records), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(TdsanDataset(dev_records), batch_size=args.batch_size, **loader_kwargs)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     best_dev = None
     for epoch in range(1, args.epochs + 1):

@@ -58,6 +58,8 @@ KEY_MAP = {
     "train.dev_limit": "DEV_LIMIT",
     "train.device": "DEVICE",
     "train.skip_train": "SKIP_TRAIN",
+    "train.num_workers": "NUM_WORKERS",
+    "train.preprocess_num_proc": "PREPROCESS_NUM_PROC",
     "predict.retriever": "RETRIEVER",
     "predict.sbert_model": "SBERT_MODEL",
     "predict.top_k": "TOP_K",

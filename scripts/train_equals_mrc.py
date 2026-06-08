@@ -25,6 +25,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--preprocess-num-proc", type=int, default=1)
     args = parser.parse_args()
 
     try:
@@ -104,8 +106,19 @@ def main() -> None:
         tokenized["end_positions"] = ends
         return tokenized
 
-    train_dataset = Dataset.from_list(train_records).map(preprocess, batched=True, remove_columns=list(train_records[0]))
-    dev_dataset = Dataset.from_list(dev_records).map(preprocess, batched=True, remove_columns=list(dev_records[0]))
+    map_num_proc = args.preprocess_num_proc if args.preprocess_num_proc > 1 else None
+    train_dataset = Dataset.from_list(train_records).map(
+        preprocess,
+        batched=True,
+        remove_columns=list(train_records[0]),
+        num_proc=map_num_proc,
+    )
+    dev_dataset = Dataset.from_list(dev_records).map(
+        preprocess,
+        batched=True,
+        remove_columns=list(dev_records[0]),
+        num_proc=map_num_proc,
+    )
     model = AutoModelForQuestionAnswering.from_pretrained(args.base_model)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     training_args = TrainingArguments(
@@ -119,6 +132,7 @@ def main() -> None:
         evaluation_strategy="epoch",
         save_strategy="epoch",
         logging_steps=100,
+        dataloader_num_workers=args.num_workers,
     )
     trainer = Trainer(
         model=model,

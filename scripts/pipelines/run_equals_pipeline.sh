@@ -29,6 +29,8 @@ DEV_LIMIT="${DEV_LIMIT:-}"
 LIMIT="${LIMIT:-}"
 DEVICE="${DEVICE:-}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
+NUM_WORKERS="${NUM_WORKERS:-0}"
+PREPROCESS_NUM_PROC="${PREPROCESS_NUM_PROC:-1}"
 
 mkdir -p "$MODEL_DIR" "$OUTPUT_DIR"
 
@@ -43,6 +45,8 @@ train_args=(
   --lr "$LR"
   --max-context-chars "$MAX_CONTEXT_CHARS"
   --max-length "$MAX_LENGTH"
+  --num-workers "$NUM_WORKERS"
+  --preprocess-num-proc "$PREPROCESS_NUM_PROC"
 )
 if [[ -n "$TRAIN_LIMIT" ]]; then
   train_args+=(--train-limit "$TRAIN_LIMIT")

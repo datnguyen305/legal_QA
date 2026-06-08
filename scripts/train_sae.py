@@ -32,6 +32,7 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -150,10 +151,11 @@ def main() -> None:
             return item
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    loader_kwargs = {"num_workers": args.num_workers, "pin_memory": device.startswith("cuda")}
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     selector = SaeDocumentSelector(args.base_model, max_docs=args.max_docs).to(device)
-    selector_loader = DataLoader(SelectorDataset(train_examples), batch_size=args.batch_size, shuffle=True)
+    selector_loader = DataLoader(SelectorDataset(train_examples), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
     selector_opt = torch.optim.AdamW(selector.parameters(), lr=args.lr)
     selector_steps = max(1, len(selector_loader) * args.selector_epochs)
     selector_sched = get_linear_schedule_with_warmup(selector_opt, int(selector_steps * 0.1), selector_steps)
@@ -176,8 +178,8 @@ def main() -> None:
     if not train_answer or not dev_answer:
         raise SystemExit("No SAE answer/explain records were created; check contexts and answer spans.")
     answer_model = SaeAnswerExplain(args.base_model, max_sentences=args.max_sentences).to(device)
-    answer_loader = DataLoader(AnswerDataset(train_answer), batch_size=args.batch_size, shuffle=True)
-    dev_loader = DataLoader(AnswerDataset(dev_answer), batch_size=args.batch_size)
+    answer_loader = DataLoader(AnswerDataset(train_answer), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(AnswerDataset(dev_answer), batch_size=args.batch_size, **loader_kwargs)
     answer_opt = torch.optim.AdamW(answer_model.parameters(), lr=args.lr)
     answer_steps = max(1, len(answer_loader) * args.answer_epochs)
     answer_sched = get_linear_schedule_with_warmup(answer_opt, int(answer_steps * 0.1), answer_steps)

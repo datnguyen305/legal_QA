@@ -27,6 +27,7 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -114,10 +115,11 @@ def main() -> None:
 
     train_rows = records(args.train_data, args.train_limit)
     dev_rows = records(args.dev_data, args.dev_limit)
-    train_loader = DataLoader(FetsfDataset(train_rows), batch_size=args.batch_size, shuffle=True)
-    dev_loader = DataLoader(FetsfDataset(dev_rows), batch_size=args.batch_size)
-
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    loader_kwargs = {"num_workers": args.num_workers, "pin_memory": device.startswith("cuda")}
+    train_loader = DataLoader(FetsfDataset(train_rows), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(FetsfDataset(dev_rows), batch_size=args.batch_size, **loader_kwargs)
+
     model = FetsfMRC(args.base_model, max_sentences=args.max_sentences).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     total_steps = max(1, len(train_loader) * args.epochs)
