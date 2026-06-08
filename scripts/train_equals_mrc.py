@@ -4,10 +4,23 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import make_extractive_record
+
+
+def progress_bar(label: str, current: int, total: int, width: int = 30) -> None:
+    total = max(1, total)
+    current = min(current, total)
+    filled = int(width * current / total)
+    bar = "#" * filled + "-" * (width - filled)
+    percent = 100 * current / total
+    sys.stderr.write(f"\r{label}: [{bar}] {current}/{total} ({percent:5.1f}%)")
+    if current >= total:
+        sys.stderr.write("\n")
+    sys.stderr.flush()
 
 
 def main() -> None:
@@ -45,9 +58,13 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
 
-    def load_records(path: str, limit: int | None) -> list[dict]:
+    def load_records(path: str, limit: int | None, split_name: str) -> list[dict]:
+        examples = load_examples(path, limit)
+        total = len(examples)
         records = []
-        for example in load_examples(path, limit):
+        kept = 0
+        print(f"Loading {split_name} examples from {path}: {total} examples", file=sys.stderr, flush=True)
+        for idx, example in enumerate(examples, start=1):
             record = make_extractive_record(
                 example,
                 context_dir=args.context_dir,
@@ -56,10 +73,14 @@ def main() -> None:
             )
             if record is not None:
                 records.append(record)
+                kept += 1
+            if idx == total or idx % 100 == 0:
+                progress_bar(f"Preprocess {split_name}", idx, total)
+        print(f"Created {kept}/{total} extractive {split_name} records", file=sys.stderr, flush=True)
         return records
 
-    train_records = load_records(args.train_data, args.train_limit)
-    dev_records = load_records(args.dev_data, args.dev_limit)
+    train_records = load_records(args.train_data, args.train_limit, "train")
+    dev_records = load_records(args.dev_data, args.dev_limit, "dev")
     if not train_records or not dev_records:
         raise SystemExit(
             "No extractive QA records were created. Check context files and answer spans, "
@@ -107,11 +128,21 @@ def main() -> None:
         return tokenized
 
     map_num_proc = args.preprocess_num_proc if args.preprocess_num_proc > 1 else None
+    print(
+        f"Tokenizing train records with num_proc={map_num_proc or 1}: {len(train_records)} records",
+        file=sys.stderr,
+        flush=True,
+    )
     train_dataset = Dataset.from_list(train_records).map(
         preprocess,
         batched=True,
         remove_columns=list(train_records[0]),
         num_proc=map_num_proc,
+    )
+    print(
+        f"Tokenizing dev records with num_proc={map_num_proc or 1}: {len(dev_records)} records",
+        file=sys.stderr,
+        flush=True,
     )
     dev_dataset = Dataset.from_list(dev_records).map(
         preprocess,
