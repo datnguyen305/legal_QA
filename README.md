@@ -50,9 +50,19 @@ For fair reported scores, keep these controls the same within a table:
 - `scripts/train_*.py` and `scripts/run_*.py`: model training and inference entrypoints.
 - `scripts/evaluate_predictions.py`: ROUGE-L, METEOR-style, and CIDEr evaluation.
 
-The bash pipelines currently read settings from environment variables. The JSON
-files in `configs/models/` mirror those defaults so model settings can be
-reviewed and versioned in one place.
+The bash pipelines load runtime defaults from `configs/models/*.json` through
+`scripts/pipelines/config_env.py`. Environment variables still override config
+values, so this works as expected:
+
+```bash
+EPOCHS=5 BATCH_SIZE=8 bash scripts/pipelines/run_equals_pipeline.sh
+```
+
+To run a pipeline with a different config file:
+
+```bash
+CONFIG=configs/models/equals.json bash scripts/pipelines/run_equals_pipeline.sh
+```
 
 ## One-Command Runs
 

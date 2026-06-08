@@ -1,0 +1,51 @@
+{
+  "model": "cpg",
+  "paper": "Simple and Effective Curriculum Pointer-Generator Networks for Reading Comprehension over Long Narratives",
+  "entrypoints": {
+    "pipeline": "scripts/pipelines/run_cpg_pipeline.sh",
+    "train": "scripts/train_cpg.py",
+    "predict": "scripts/run_cpg.py"
+  },
+  "data": {
+    "train_data": "dataset/train_data.json",
+    "dev_data": "dataset/dev_data.json",
+    "test_data": "dataset/test_data.json",
+    "context_dir": "dataset/contexts"
+  },
+  "paths": {
+    "model_dir": "models/cpg",
+    "output_dir": "outputs",
+    "predictions": "outputs/cpg.jsonl",
+    "metrics": "outputs/cpg_metrics.json"
+  },
+  "train": {
+    "batch_size": 4,
+    "epochs": 25,
+    "learning_rate": 1.0,
+    "chunk_sizes": [
+      50,
+      100,
+      200,
+      500
+    ],
+    "max_context_tokens": 2000,
+    "max_question_tokens": 64,
+    "max_answer_tokens": 64,
+    "easy_ratio": 1.0,
+    "easy_ratio_decay": 0.25,
+    "hidden": 128,
+    "decoder_hidden": 256,
+    "block_size": 200,
+    "train_limit": null,
+    "dev_limit": null,
+    "device": null,
+    "skip_train": false
+  },
+  "predict": {
+    "chunk_size": 200,
+    "limit": null
+  },
+  "evaluation": {
+    "upper_bound": false
+  }
+}

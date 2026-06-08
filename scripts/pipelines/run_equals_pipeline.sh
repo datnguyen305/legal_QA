@@ -5,6 +5,9 @@ set -euo pipefail
 # Override any setting by prefixing the command, for example:
 #   LIMIT=100 RETRIEVER=bm25 bash scripts/run_equals_pipeline.sh
 
+CONFIG="${CONFIG:-configs/models/equals.json}"
+eval "$(python3 scripts/pipelines/config_env.py "$CONFIG")"
+
 TRAIN_DATA="${TRAIN_DATA:-dataset/train_data.json}"
 DEV_DATA="${DEV_DATA:-dataset/dev_data.json}"
 TEST_DATA="${TEST_DATA:-dataset/test_data.json}"
@@ -52,8 +55,8 @@ if [[ "$SKIP_TRAIN" != "1" ]]; then
   python3 scripts/train_equals_mrc.py "${train_args[@]}"
 fi
 
-predictions="$OUTPUT_DIR/equals_${RETRIEVER}_mrc.jsonl"
-metrics="$OUTPUT_DIR/equals_${RETRIEVER}_mrc_metrics.json"
+predictions="${PREDICTIONS:-$OUTPUT_DIR/equals_${RETRIEVER}_mrc.jsonl}"
+metrics="${METRICS:-$OUTPUT_DIR/equals_${RETRIEVER}_mrc_metrics.json}"
 
 run_args=(
   --retriever "$RETRIEVER"

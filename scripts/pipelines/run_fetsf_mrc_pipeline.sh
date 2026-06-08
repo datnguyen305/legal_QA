@@ -5,6 +5,9 @@ set -euo pipefail
 # Override any setting by prefixing the command, for example:
 #   LIMIT=100 TRAIN_LIMIT=1000 bash scripts/run_fetsf_mrc_pipeline.sh
 
+CONFIG="${CONFIG:-configs/models/fetsf_mrc.json}"
+eval "$(python3 scripts/pipelines/config_env.py "$CONFIG")"
+
 TRAIN_DATA="${TRAIN_DATA:-dataset/train_data.json}"
 DEV_DATA="${DEV_DATA:-dataset/dev_data.json}"
 TEST_DATA="${TEST_DATA:-dataset/test_data.json}"
@@ -53,8 +56,8 @@ if [[ "$SKIP_TRAIN" != "1" ]]; then
   python3 scripts/train_fetsf_mrc.py "${train_args[@]}"
 fi
 
-predictions="$OUTPUT_DIR/fetsf_mrc.jsonl"
-metrics="$OUTPUT_DIR/fetsf_mrc_metrics.json"
+predictions="${PREDICTIONS:-$OUTPUT_DIR/fetsf_mrc.jsonl}"
+metrics="${METRICS:-$OUTPUT_DIR/fetsf_mrc_metrics.json}"
 
 run_args=(
   --model-dir "$MODEL_DIR"

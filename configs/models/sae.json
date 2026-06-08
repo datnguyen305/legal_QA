@@ -1,0 +1,48 @@
+{
+  "model": "sae",
+  "paper": "Select, Answer and Explain",
+  "entrypoints": {
+    "pipeline": "scripts/pipelines/run_sae_pipeline.sh",
+    "train": "scripts/train_sae.py",
+    "predict": "scripts/run_sae.py"
+  },
+  "data": {
+    "train_data": "dataset/train_data.json",
+    "dev_data": "dataset/dev_data.json",
+    "test_data": "dataset/test_data.json",
+    "context_dir": "dataset/contexts"
+  },
+  "paths": {
+    "model_dir": "models/sae",
+    "output_dir": "outputs",
+    "predictions": "outputs/sae.jsonl",
+    "metrics": "outputs/sae_metrics.json"
+  },
+  "train": {
+    "base_model": "bert-base-multilingual-cased",
+    "batch_size": 2,
+    "selector_epochs": 1,
+    "answer_epochs": 2,
+    "learning_rate": 2e-5,
+    "max_docs": 6,
+    "top_k": 2,
+    "max_context_chars": 12000,
+    "max_length": 512,
+    "max_sentences": 96,
+    "train_limit": null,
+    "dev_limit": null,
+    "device": null,
+    "skip_train": false
+  },
+  "predict": {
+    "corpus_data": [
+      "dataset/train_data.json",
+      "dataset/dev_data.json",
+      "dataset/test_data.json"
+    ],
+    "limit": null
+  },
+  "evaluation": {
+    "upper_bound": false
+  }
+}

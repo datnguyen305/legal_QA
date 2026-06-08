@@ -1,0 +1,43 @@
+{
+  "model": "deep_cascade",
+  "paper": "A Deep Cascade Model for Multi-Document Reading Comprehension",
+  "entrypoints": {
+    "pipeline": "scripts/pipelines/run_deep_cascade_pipeline.sh",
+    "train": "scripts/train_deep_cascade.py",
+    "predict": "scripts/run_deep_cascade.py"
+  },
+  "data": {
+    "train_data": "dataset/train_data.json",
+    "dev_data": "dataset/dev_data.json",
+    "test_data": "dataset/test_data.json",
+    "context_dir": "dataset/contexts"
+  },
+  "paths": {
+    "model_dir": "models/deep_cascade",
+    "output_dir": "outputs",
+    "predictions": "outputs/deep_cascade.jsonl",
+    "metrics": "outputs/deep_cascade_metrics.json"
+  },
+  "train": {
+    "batch_size": 8,
+    "epochs": 25,
+    "ranker_epochs": 1,
+    "learning_rate": 5e-4,
+    "max_docs": 4,
+    "max_paragraphs": 2,
+    "max_context_chars": 12000,
+    "max_question_tokens": 96,
+    "max_context_tokens": 1536,
+    "hidden": 128,
+    "train_limit": null,
+    "dev_limit": null,
+    "device": null,
+    "skip_train": false
+  },
+  "predict": {
+    "limit": null
+  },
+  "evaluation": {
+    "upper_bound": false
+  }
+}

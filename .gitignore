@@ -32,7 +32,6 @@ Thumbs.db
 .vscode/
 
 # Model checkpoints and generated run artifacts
-models/
 checkpoints/
 runs/
 wandb/
