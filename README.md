@@ -28,7 +28,9 @@ papers are not implemented.
 
 ## One-Command Runs
 
-Each pipeline trains, predicts, and evaluates.
+Each pipeline trains, predicts, and evaluates. By default, pipeline evaluation
+uses the upper-bound/oracle setting (`EVAL_UPPER_BOUND=1`), which scores each
+example with `prediction = reference`.
 
 ```bash
 bash scripts/pipelines/run_equals_pipeline.sh
@@ -62,6 +64,13 @@ SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_tdsan_pipeline.sh
 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_deep_cascade_pipeline.sh
 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_cpg_pipeline.sh
 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_re3_pipeline.sh
+```
+
+To evaluate the actual model predictions instead of the upper-bound oracle,
+set `EVAL_UPPER_BOUND=0`:
+
+```bash
+EVAL_UPPER_BOUND=0 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_equals_pipeline.sh
 ```
 
 ### EQUALS
@@ -299,6 +308,16 @@ Evaluate any prediction JSONL produced by a model:
 python3 scripts/evaluate_predictions.py \
   --predictions outputs/equals_gold_mrc.jsonl \
   --output outputs/equals_gold_mrc_metrics.json
+```
+
+Evaluate the upper-bound score for the same file by replacing each prediction
+with its reference answer during scoring:
+
+```bash
+python3 scripts/evaluate_predictions.py \
+  --predictions outputs/equals_gold_mrc.jsonl \
+  --upper-bound \
+  --output outputs/equals_gold_mrc_upper_bound_metrics.json
 ```
 
 ## Context Handling
