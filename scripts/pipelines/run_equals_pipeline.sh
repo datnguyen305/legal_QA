@@ -82,7 +82,7 @@ fi
 
 python3 scripts/run_equals.py "${run_args[@]}"
 eval_args=(--predictions "$predictions" --output "$metrics")
-if [[ "${EVAL_UPPER_BOUND:-1}" == "1" ]]; then
+if [[ "${EVAL_UPPER_BOUND:-0}" == "1" ]]; then
   eval_args+=(--upper-bound)
 fi
 python3 scripts/evaluate_predictions.py "${eval_args[@]}"

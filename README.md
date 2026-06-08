@@ -18,19 +18,46 @@ python3 -m pip install -r requirements-models.txt
 Only the proposed model paths are implemented. Competitive models from the
 papers are not implemented.
 
+## Fair Comparison Groups
+
+Use `configs/comparison_groups.json` as the comparison taxonomy. Do not rank all
+models in one flat table without noting the group, because the systems differ in
+pretraining, answer style, and retrieval assumptions.
+
+Recommended direct-comparison groups:
+
+- Pretrained extractive readers: `EQUALS`, `FETSF-MRC`, `SAE`, `RE3`.
+- Custom extractive readers trained from scratch: `TD-SAN`, `Deep Cascade`.
+- Custom generative reader trained from scratch: `CPG`.
+- Oracle/sanity checks: `evaluation --upper-bound`, `baseline paper_gold`.
+
+For fair reported scores, keep these controls the same within a table:
+
+- same train/dev/test split and same `dataset/contexts`;
+- same `TRAIN_LIMIT`, `DEV_LIMIT`, and `LIMIT` if using smoke runs;
+- same evaluation mode, normally prediction mode (`EVAL_UPPER_BOUND=0`);
+- same base model for pretrained systems, normally `bert-base-multilingual-cased`;
+- retriever setting reported explicitly, especially for EQUALS `gold`, `bm25`,
+  or `sbert`.
+
 ## Repository Layout
 
+- `configs/models/`: JSON config defaults for each implemented paper model.
+- `configs/comparison_groups.json`: fair-comparison group definitions.
 - `scripts/model_architectures/`: proposed paper model architectures.
 - `scripts/data_preprocessing/`: dataset loading, context handling, and model-specific preprocessing.
 - `scripts/pipelines/`: one-command bash pipelines for training, prediction, and evaluation.
 - `scripts/train_*.py` and `scripts/run_*.py`: model training and inference entrypoints.
 - `scripts/evaluate_predictions.py`: ROUGE-L, METEOR-style, and CIDEr evaluation.
 
+The bash pipelines currently read settings from environment variables. The JSON
+files in `configs/models/` mirror those defaults so model settings can be
+reviewed and versioned in one place.
+
 ## One-Command Runs
 
 Each pipeline trains, predicts, and evaluates. By default, pipeline evaluation
-uses the upper-bound/oracle setting (`EVAL_UPPER_BOUND=1`), which scores each
-example with `prediction = reference`.
+scores the model's actual predictions (`EVAL_UPPER_BOUND=0`).
 
 ```bash
 bash scripts/pipelines/run_equals_pipeline.sh
@@ -66,11 +93,11 @@ SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_cpg_pipeline.sh
 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_re3_pipeline.sh
 ```
 
-To evaluate the actual model predictions instead of the upper-bound oracle,
-set `EVAL_UPPER_BOUND=0`:
+To evaluate the upper-bound oracle instead of actual model predictions, set
+`EVAL_UPPER_BOUND=1`:
 
 ```bash
-EVAL_UPPER_BOUND=0 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_equals_pipeline.sh
+EVAL_UPPER_BOUND=1 SKIP_TRAIN=1 DEVICE=cuda bash scripts/pipelines/run_equals_pipeline.sh
 ```
 
 ### EQUALS
