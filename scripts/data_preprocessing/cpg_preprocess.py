@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import random
+import sys
 from typing import Any
 
 from data_preprocessing.legalqa_data import context_text, load_examples
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
+
+
+def progress_bar(label: str, current: int, total: int, kept: int, width: int = 30) -> None:
+    total = max(1, total)
+    current = min(current, total)
+    filled = int(width * current / total)
+    bar = "#" * filled + "-" * (width - filled)
+    percent = 100 * current / total
+    sys.stderr.write(f"\r{label}: [{bar}] {current}/{total} ({percent:5.1f}%) kept={kept}")
+    if current >= total:
+        sys.stderr.write("\n")
+    sys.stderr.flush()
 
 
 def chunk_tokens(tokens: list[str], chunk_size: int) -> list[list[str]]:
@@ -68,13 +81,22 @@ def load_cpg_records(
     max_context_tokens: int,
     easy_ratio: float,
     seed: int = 23,
+    progress_label: str | None = None,
 ) -> list[dict[str, Any]]:
     rng = random.Random(seed)
     records = []
-    for example in load_examples(data_path, limit):
+    examples = load_examples(data_path, limit)
+    total = len(examples)
+    if progress_label:
+        print(f"Loading CPG records for {progress_label}: {total} examples", file=sys.stderr, flush=True)
+    for idx, example in enumerate(examples, start=1):
         chunk_size = rng.choice(chunk_sizes)
         query_mode = "answer" if rng.random() < easy_ratio else "question"
         record = make_cpg_record(example, context_dir, chunk_size, max_context_tokens, query_mode)
         if record is not None:
             records.append(record)
+        if progress_label and (idx == total or idx % 100 == 0):
+            progress_bar(f"Preprocess {progress_label}", idx, total, len(records))
+    if progress_label:
+        print(f"Created {len(records)}/{total} CPG records for {progress_label}", file=sys.stderr, flush=True)
     return records

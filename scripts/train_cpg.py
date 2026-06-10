@@ -71,10 +71,22 @@ def main() -> None:
 
     chunk_sizes = [int(x) for x in args.chunk_sizes.split(",") if x.strip()]
     train_records = load_cpg_records(
-        args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, args.easy_ratio
+        args.train_data,
+        args.context_dir,
+        args.train_limit,
+        chunk_sizes,
+        args.max_context_tokens,
+        args.easy_ratio,
+        progress_label="initial train",
     )
     dev_records = load_cpg_records(
-        args.dev_data, args.context_dir, args.dev_limit, chunk_sizes, args.max_context_tokens, 0.5
+        args.dev_data,
+        args.context_dir,
+        args.dev_limit,
+        chunk_sizes,
+        args.max_context_tokens,
+        0.5,
+        progress_label="dev",
     )
     if not train_records or not dev_records:
         raise SystemExit("No curriculum pointer-generator records were created.")
@@ -117,7 +129,14 @@ def main() -> None:
     for epoch in range(1, args.epochs + 1):
         easy_ratio = max(0.0, args.easy_ratio - (epoch - 1) * args.easy_ratio_decay)
         train_records_epoch = load_cpg_records(
-            args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, easy_ratio, seed=23 + epoch
+            args.train_data,
+            args.context_dir,
+            args.train_limit,
+            chunk_sizes,
+            args.max_context_tokens,
+            easy_ratio,
+            seed=23 + epoch,
+            progress_label=f"train epoch {epoch}",
         )
         train_loader = DataLoader(CpgDataset(train_records_epoch), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
         model.train()
