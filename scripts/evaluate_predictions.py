@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate generated Legal QA answers with ROUGE-L, METEOR, and CIDEr."""
+"""Evaluate generated Legal QA answers with ROUGE-L, METEOR, CIDEr, and optional BERTScore."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 import json
 import math
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 
@@ -118,6 +118,32 @@ def read_predictions(path: str | Path) -> list[dict]:
     return rows
 
 
+def bertscore_scores(
+    predictions: list[str],
+    references: list[str],
+    model_type: str,
+    batch_size: int,
+    device: str | None,
+) -> tuple[list[float], list[float], list[float]]:
+    try:
+        from bert_score import score
+    except ImportError as exc:
+        raise SystemExit(
+            "BERTScore evaluation requires: python3 -m pip install bert-score"
+        ) from exc
+
+    kwargs = {
+        "model_type": model_type,
+        "batch_size": batch_size,
+        "verbose": True,
+        "rescale_with_baseline": False,
+    }
+    if device:
+        kwargs["device"] = device
+    precision, recall, f1 = score(predictions, references, **kwargs)
+    return precision.tolist(), recall.tolist(), f1.tolist()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", required=True, help="JSONL with prediction and reference fields")
@@ -127,23 +153,44 @@ def main() -> None:
         action="store_true",
         help="Score an oracle run by replacing each prediction with its reference answer.",
     )
+    parser.add_argument("--bertscore", action="store_true", help="Compute BERTScore precision/recall/F1.")
+    parser.add_argument(
+        "--bertscore-model",
+        default="bert-base-multilingual-cased",
+        help="Hugging Face model used by BERTScore.",
+    )
+    parser.add_argument("--bertscore-batch-size", type=int, default=16)
+    parser.add_argument("--bertscore-device", default=None, help="Optional device for BERTScore, e.g. cuda or cpu.")
     args = parser.parse_args()
 
     rows = read_predictions(args.predictions)
     references = [row.get("reference", row.get("answer", "")) for row in rows]
     predictions = references[:] if args.upper_bound else [row.get("prediction", "") for row in rows]
     cider = cider_scores(predictions, references)
+    bertscore = None
+    if args.bertscore:
+        bertscore = bertscore_scores(
+            predictions,
+            references,
+            model_type=args.bertscore_model,
+            batch_size=args.bertscore_batch_size,
+            device=args.bertscore_device,
+        )
 
     detailed = []
-    for row, pred, ref, cider_score in zip(rows, predictions, references, cider):
-        detailed.append(
-            {
-                "id": row.get("id"),
-                "rouge_l": rouge_l(pred, ref),
-                "meteor": meteor(pred, ref),
-                "cider": cider_score,
-            }
-        )
+    for i, (row, pred, ref, cider_score) in enumerate(zip(rows, predictions, references, cider)):
+        item = {
+            "id": row.get("id"),
+            "rouge_l": rouge_l(pred, ref),
+            "meteor": meteor(pred, ref),
+            "cider": cider_score,
+        }
+        if bertscore is not None:
+            precision, recall, f1 = bertscore
+            item["bertscore_precision"] = precision[i]
+            item["bertscore_recall"] = recall[i]
+            item["bertscore_f1"] = f1[i]
+        detailed.append(item)
 
     summary = {
         "count": len(rows),
@@ -152,6 +199,15 @@ def main() -> None:
         "meteor": sum(x["meteor"] for x in detailed) / len(detailed) if detailed else 0.0,
         "cider": sum(x["cider"] for x in detailed) / len(detailed) if detailed else 0.0,
     }
+    if bertscore is not None:
+        summary["bertscore_model"] = args.bertscore_model
+        summary["bertscore_precision"] = (
+            sum(x["bertscore_precision"] for x in detailed) / len(detailed) if detailed else 0.0
+        )
+        summary["bertscore_recall"] = (
+            sum(x["bertscore_recall"] for x in detailed) / len(detailed) if detailed else 0.0
+        )
+        summary["bertscore_f1"] = sum(x["bertscore_f1"] for x in detailed) / len(detailed) if detailed else 0.0
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if args.output:

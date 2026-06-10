@@ -3,7 +3,7 @@
 This workspace contains Vietnamese legal QA splits in `dataset/`, legal context
 files in `dataset/contexts/`, and paper PDFs in `papers/`. The scripts below run
 the implemented paper models and evaluate generated answers with ROUGE-L,
-METEOR-style exact token matching, and CIDEr.
+METEOR-style exact token matching, CIDEr, and optional BERTScore.
 
 ## Setup
 
@@ -48,7 +48,7 @@ For fair reported scores, keep these controls the same within a table:
 - `scripts/data_preprocessing/`: dataset loading, context handling, and model-specific preprocessing.
 - `scripts/pipelines/`: one-command bash pipelines for training, prediction, and evaluation.
 - `scripts/train_*.py` and `scripts/run_*.py`: model training and inference entrypoints.
-- `scripts/evaluate_predictions.py`: ROUGE-L, METEOR-style, and CIDEr evaluation.
+- `scripts/evaluate_predictions.py`: ROUGE-L, METEOR-style, CIDEr, and optional BERTScore evaluation.
 
 The bash pipelines load runtime defaults from `configs/models/*.json` through
 `scripts/pipelines/config_env.py`. Environment variables still override config
@@ -77,7 +77,8 @@ CONFIG=configs/models/equals.json bash scripts/pipelines/run_equals_pipeline.sh
 ## One-Command Runs
 
 Each pipeline trains, predicts, and evaluates. By default, pipeline evaluation
-scores the model's actual predictions (`EVAL_UPPER_BOUND=0`).
+scores the model's actual predictions (`EVAL_UPPER_BOUND=0`) and includes
+BERTScore (`EVAL_BERTSCORE=1`).
 
 ```bash
 bash scripts/pipelines/run_equals_pipeline.sh
@@ -88,6 +89,16 @@ bash scripts/pipelines/run_deep_cascade_pipeline.sh
 bash scripts/pipelines/run_cpg_pipeline.sh
 bash scripts/pipelines/run_re3_pipeline.sh
 ```
+
+Disable BERTScore for faster evaluation with:
+
+```bash
+EVAL_BERTSCORE=0 bash scripts/pipelines/run_equals_pipeline.sh
+```
+
+Use `BERTSCORE_DEVICE=cuda` to run BERTScore on GPU. Use
+`BERTSCORE_DEVICE=cpu` or omit it if CUDA is unavailable. The default BERTScore
+model is `bert-base-multilingual-cased`.
 
 Useful smoke-run overrides:
 
@@ -354,6 +365,16 @@ Evaluate any prediction JSONL produced by a model:
 ```bash
 python3 scripts/evaluate_predictions.py \
   --predictions outputs/equals_gold_mrc.jsonl \
+  --output outputs/equals_gold_mrc_metrics.json
+```
+
+Evaluate with BERTScore as well:
+
+```bash
+python3 scripts/evaluate_predictions.py \
+  --predictions outputs/equals_gold_mrc.jsonl \
+  --bertscore \
+  --bertscore-model bert-base-multilingual-cased \
   --output outputs/equals_gold_mrc_metrics.json
 ```
 

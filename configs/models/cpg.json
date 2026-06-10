@@ -47,6 +47,10 @@
     "limit": null
   },
   "evaluation": {
-    "upper_bound": false
+    "upper_bound": false,
+    "bertscore": true,
+    "bertscore_model": "bert-base-multilingual-cased",
+    "bertscore_batch_size": 16,
+    "bertscore_device": null
   }
 }

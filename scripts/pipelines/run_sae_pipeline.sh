@@ -86,6 +86,12 @@ eval_args=(--predictions "$predictions" --output "$metrics")
 if [[ "${EVAL_UPPER_BOUND:-0}" == "1" ]]; then
   eval_args+=(--upper-bound)
 fi
+if [[ "${EVAL_BERTSCORE:-0}" == "1" ]]; then
+  eval_args+=(--bertscore --bertscore-model "${BERTSCORE_MODEL:-bert-base-multilingual-cased}" --bertscore-batch-size "${BERTSCORE_BATCH_SIZE:-16}")
+  if [[ -n "${BERTSCORE_DEVICE:-}" ]]; then
+    eval_args+=(--bertscore-device "$BERTSCORE_DEVICE")
+  fi
+fi
 python3 scripts/evaluate_predictions.py "${eval_args[@]}"
 
 echo "Predictions: $predictions"

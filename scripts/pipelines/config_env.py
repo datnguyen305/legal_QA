@@ -67,6 +67,10 @@ KEY_MAP = {
     "predict.chunk_size": "CHUNK_SIZE",
     "predict.limit": "LIMIT",
     "evaluation.upper_bound": "EVAL_UPPER_BOUND",
+    "evaluation.bertscore": "EVAL_BERTSCORE",
+    "evaluation.bertscore_model": "BERTSCORE_MODEL",
+    "evaluation.bertscore_batch_size": "BERTSCORE_BATCH_SIZE",
+    "evaluation.bertscore_device": "BERTSCORE_DEVICE",
 }
 
 

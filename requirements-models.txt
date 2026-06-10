@@ -4,3 +4,4 @@ sentencepiece
 accelerate
 sentence-transformers
 datasets
+bert-score
