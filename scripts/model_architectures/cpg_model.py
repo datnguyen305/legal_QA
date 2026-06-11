@@ -28,10 +28,12 @@ except ImportError:
 
 def _missing_deps() -> None:
     if torch is None:
-        raise SystemExit("Curriculum pointer-generator requires: python3 -m pip install -r requirements-models.txt")
+        raise SystemExit("CPG requires PyTorch. Install dependencies from requirements-models.txt.")
 
 
 class IntrospectiveAlignmentLayer(nn.Module):
+    """IAL from CPG: question alignment plus block local self-attention."""
+
     def __init__(self, hidden: int, block_size: int = 200) -> None:
         _missing_deps()
         super().__init__()
@@ -96,8 +98,10 @@ class CurriculumPointerGenerator(nn.Module):
         c, _ = self.encoder(self.embedding(context_ids))
         q, _ = self.encoder(self.embedding(question_ids))
         y = self.ial(c, q, question_mask)
-        q_vec = q.masked_fill(~question_mask.unsqueeze(-1), 0.0).sum(dim=1) / question_mask.sum(dim=1, keepdim=True).clamp(min=1)
-        y_vec = y.masked_fill(~context_mask.unsqueeze(-1), 0.0).sum(dim=1) / context_mask.sum(dim=1, keepdim=True).clamp(min=1)
+        q_vec = q.masked_fill(~question_mask.unsqueeze(-1), 0.0).sum(dim=1)
+        q_vec = q_vec / question_mask.sum(dim=1, keepdim=True).clamp(min=1)
+        y_vec = y.masked_fill(~context_mask.unsqueeze(-1), 0.0).sum(dim=1)
+        y_vec = y_vec / context_mask.sum(dim=1, keepdim=True).clamp(min=1)
         return y, q_vec, context_mask, y_vec
 
     def _step(self, y: Any, q_vec: Any, context_ids: Any, context_mask: Any, prev_emb: Any, h: Any, c: Any) -> tuple[Any, Any, Any, Any]:

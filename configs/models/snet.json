@@ -1,0 +1,7 @@
+{
+  "train_script": "scripts/train_snet.py",
+  "run_script": "scripts/run_snet.py",
+  "model_dir": "models/snet",
+  "predictions": "outputs/snet_predictions.jsonl",
+  "metrics": "outputs/snet_metrics.json"
+}

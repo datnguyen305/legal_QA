@@ -1,1 +1,1 @@
-"""Model architecture modules for implemented paper methods."""
+"""Model architectures for Legal QA experiments."""

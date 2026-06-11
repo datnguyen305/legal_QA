@@ -1,0 +1,7 @@
+{
+  "train_script": "scripts/train_latentqa.py",
+  "run_script": "scripts/run_latentqa.py",
+  "model_dir": "models/latentqa",
+  "predictions": "outputs/latentqa_predictions.jsonl",
+  "metrics": "outputs/latentqa_metrics.json"
+}

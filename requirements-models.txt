@@ -1,7 +1,4 @@
 torch
 transformers
 sentencepiece
-accelerate
-sentence-transformers
-datasets
 bert-score

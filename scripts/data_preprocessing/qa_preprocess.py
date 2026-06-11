@@ -1,11 +1,11 @@
-"""Preprocessing helpers for extractive legal QA models."""
+"""Preprocessing helpers for extractive and generative legal QA models."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from data_preprocessing.legalqa_data import context_text, load_context_texts
+from data_preprocessing.legalqa_data import context_text
 
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+")
@@ -26,12 +26,6 @@ def sentence_split(text: str) -> list[str]:
 
 
 def answer_span(context: str, answer: str) -> tuple[int, int] | None:
-    """Find a usable extractive answer span inside context.
-
-    Dataset answers often include explanatory prose around quoted legal text.
-    We first try the full answer, then progressively try longer answer
-    sentences and clauses.
-    """
     context_norm = normalize_space(context)
     answer_norm = normalize_space(answer)
     if not context_norm or not answer_norm:
@@ -39,7 +33,8 @@ def answer_span(context: str, answer: str) -> tuple[int, int] | None:
 
     candidates = [answer_norm]
     candidates.extend(sentence_split(answer_norm))
-    candidates.extend(part.strip() for part in re.split(r"[\n;:。.!?]", answer_norm) if part.strip())
+    candidates.extend(part.strip() for part in re.split(r"[\n;:。!?]", answer_norm) if part.strip())
+    candidates.extend(part.strip() for part in re.findall(r"[“\"]([^”\"]+)[”\"]", answer_norm) if part.strip())
     candidates = sorted(set(candidates), key=len, reverse=True)
 
     lower_context = context_norm.lower()
@@ -48,7 +43,11 @@ def answer_span(context: str, answer: str) -> tuple[int, int] | None:
             continue
         start = lower_context.find(candidate.lower())
         if start >= 0:
-            return start, start + len(candidate)
+            end = start + len(candidate)
+            if end < len(context_norm) and context_norm[end] == "." and context_norm[end - 1].isdigit():
+                while end < len(context_norm) and (context_norm[end].isdigit() or context_norm[end] == "."):
+                    end += 1
+            return start, end
     return None
 
 
@@ -60,13 +59,19 @@ def make_extractive_record(
 ) -> dict[str, Any] | None:
     context = context_text(example, context_dir, max_context_chars, prefer_article)
     answer = example.get("answer", "")
-    span = answer_span(context, answer)
+    span = (
+        (example.get("answer_start"), example.get("answer_end"))
+        if isinstance(example.get("answer_start"), int) and isinstance(example.get("answer_end"), int)
+        else answer_span(context, answer)
+    )
     if span is None:
         return None
     start, end = span
+    if not (0 <= start < end <= len(context)):
+        return None
     return {
         "id": example.get("id"),
-        "question": example.get("question", ""),
+        "question": normalize_space(example.get("question", "")),
         "context": context,
         "answer": context[start:end],
         "answer_start": start,
@@ -85,15 +90,6 @@ def sentence_evidence_labels(context: str, answer_start: int, answer_end: int) -
             idx = cursor
         sent_start = idx
         sent_end = idx + len(sentence)
-        labels.append(int(sent_start <= answer_end and sent_end >= answer_start))
+        labels.append(int(sent_start < answer_end and sent_end > answer_start))
         cursor = sent_end
     return sentences, labels
-
-
-def gold_contexts(example: dict[str, Any], context_dir: str, max_context_chars: int | None) -> list[str]:
-    return load_context_texts(
-        example,
-        context_dir=context_dir,
-        max_chars_per_context=max_context_chars,
-        prefer_article=True,
-    )
