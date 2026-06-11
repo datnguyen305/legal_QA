@@ -8,20 +8,26 @@ import json
 from contextlib import nullcontext
 from pathlib import Path
 
-from data_preprocessing.cpg_preprocess import sample_gold_context
+from data_preprocessing.cpg_preprocess import progress_bar, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
 from train_cpg import build_vocab, encode
 
 
-def build_records(path: str, context_dir: str, limit: int | None, max_context_chars: int) -> list[dict]:
+def build_records(path: str, context_dir: str, limit: int | None, max_context_chars: int, progress_label: str | None = None) -> list[dict]:
     rows = []
-    for ex in load_examples(path, limit):
+    examples = load_examples(path, limit)
+    total = len(examples)
+    if progress_label:
+        print(f"Loading LatentQA records for {progress_label}: {total} examples", flush=True)
+    for idx, ex in enumerate(examples, start=1):
         context = sample_gold_context(ex, context_dir)[:max_context_chars]
         answer = normalize_space(ex.get("answer", ""))
         question = normalize_space(ex.get("question", ""))
         if context and answer and question:
             rows.append({"id": ex.get("id"), "question": question, "context": context, "answer": answer})
+        if progress_label and (idx == total or idx % 500 == 0):
+            progress_bar(f"Preprocess LatentQA {progress_label}", idx, total, len(rows))
     return rows
 
 
@@ -57,8 +63,8 @@ def main() -> None:
 
     from model_architectures.latentqa_model import LatentQA
 
-    train_rows = build_records(args.train_data, args.context_dir, args.train_limit, args.max_context_chars)
-    dev_rows = build_records(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars)
+    train_rows = build_records(args.train_data, args.context_dir, args.train_limit, args.max_context_chars, progress_label="train")
+    dev_rows = build_records(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars, progress_label="dev")
     if not train_rows or not dev_rows:
         train_probe = load_examples(args.train_data, 1)
         dev_probe = load_examples(args.dev_data, 1)

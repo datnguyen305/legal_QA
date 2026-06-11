@@ -74,8 +74,24 @@ def main() -> None:
     from model_architectures.cpg_model import CurriculumPointerGenerator
 
     chunk_sizes = [int(x) for x in args.chunk_sizes.split(",") if x.strip()]
-    train_records = load_cpg_records(args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, args.easy_ratio)
-    dev_records = load_cpg_records(args.dev_data, args.context_dir, args.dev_limit, chunk_sizes, args.max_context_tokens, 0.5)
+    train_records = load_cpg_records(
+        args.train_data,
+        args.context_dir,
+        args.train_limit,
+        chunk_sizes,
+        args.max_context_tokens,
+        args.easy_ratio,
+        progress_label="initial train",
+    )
+    dev_records = load_cpg_records(
+        args.dev_data,
+        args.context_dir,
+        args.dev_limit,
+        chunk_sizes,
+        args.max_context_tokens,
+        0.5,
+        progress_label="dev",
+    )
     if not train_records or not dev_records:
         train_probe = load_examples(args.train_data, 1)
         dev_probe = load_examples(args.dev_data, 1)
@@ -130,7 +146,16 @@ def main() -> None:
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         easy_ratio = max(0.0, args.easy_ratio - (epoch - 1) * args.easy_ratio_decay)
-        epoch_records = load_cpg_records(args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, easy_ratio, seed=23 + epoch)
+        epoch_records = load_cpg_records(
+            args.train_data,
+            args.context_dir,
+            args.train_limit,
+            chunk_sizes,
+            args.max_context_tokens,
+            easy_ratio,
+            seed=23 + epoch,
+            progress_label=f"train epoch {epoch}",
+        )
         train_loader = DataLoader(CpgDataset(epoch_records), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
         model.train()
         total = 0.0
