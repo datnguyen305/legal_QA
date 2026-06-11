@@ -11,6 +11,7 @@ from pathlib import Path
 from data_preprocessing.cpg_preprocess import progress_bar, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
+from evaluate_predictions import rouge_l
 from train_cpg import build_vocab, encode
 
 
@@ -31,6 +32,20 @@ def build_records(path: str, context_dir: str, limit: int | None, max_context_ch
     return rows
 
 
+def decode_logits(logits, inv_vocab: dict[int, str]) -> list[str]:
+    rows = []
+    for seq in logits.argmax(dim=-1).detach().cpu().tolist():
+        words = []
+        for idx in seq:
+            word = inv_vocab.get(idx, "<unk>")
+            if word == "<eos>":
+                break
+            if word not in {"<pad>", "<bos>"}:
+                words.append(word)
+        rows.append(" ".join(words))
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-data", default="dataset/train_data.json")
@@ -47,7 +62,8 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--decoder-hidden", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=20, help="Maximum epochs. Early stopping may stop sooner.")
+    parser.add_argument("--patience", type=int, default=3, help="Stop after this many epochs without dev ROUGE-L improvement.")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--amp", choices=("none", "fp16", "bf16"), default="bf16")
     parser.add_argument("--grad-clip", type=float, default=5.0)
@@ -77,6 +93,7 @@ def main() -> None:
             f"first dev keys={dev_keys}, gold_context_found={bool(dev_probe and sample_gold_context(dev_probe[0], args.context_dir))}."
         )
     vocab = build_vocab(train_rows + dev_rows, args.min_freq)
+    inv_vocab = {idx: tok for tok, idx in vocab.items()}
 
     class QADataset(Dataset):
         def __init__(self, rows: list[dict]) -> None:
@@ -112,7 +129,8 @@ def main() -> None:
     }
     train_loader = DataLoader(QADataset(train_rows), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
     dev_loader = DataLoader(QADataset(dev_rows), batch_size=args.batch_size, **loader_kwargs)
-    best_dev = None
+    best_dev_rouge = None
+    bad_epochs = 0
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -140,19 +158,35 @@ def main() -> None:
                 print(f"epoch={epoch} step={step}/{len(train_loader)} loss={total / step:.4f}")
         model.eval()
         dev_loss = 0.0
+        dev_predictions: list[str] = []
         with torch.no_grad():
             for batch in dev_loader:
                 batch = {k: v.to(device) for k, v in batch.items()}
                 with autocast_context():
                     loss = model(**batch).loss
+                    generated = model(
+                        context_ids=batch["context_ids"],
+                        question_ids=batch["question_ids"],
+                        max_answer_len=args.max_answer_tokens,
+                    )
                 dev_loss += float(loss.detach().float().cpu())
+                dev_predictions.extend(decode_logits(generated.logits, inv_vocab))
         dev_loss /= max(1, len(dev_loader))
-        print(f"epoch={epoch} train_loss={total / max(1, len(train_loader)):.4f} dev_loss={dev_loss:.4f}")
-        if best_dev is None or dev_loss < best_dev:
-            best_dev = dev_loss
+        dev_references = [row["answer"] for row in dev_rows[: len(dev_predictions)]]
+        dev_rouge_l = sum(rouge_l(pred, ref) for pred, ref in zip(dev_predictions, dev_references)) / max(1, len(dev_predictions))
+        print(f"epoch={epoch} train_loss={total / max(1, len(train_loader)):.4f} dev_loss={dev_loss:.4f} dev_rouge_l={dev_rouge_l:.4f}")
+        if best_dev_rouge is None or dev_rouge_l > best_dev_rouge:
+            best_dev_rouge = dev_rouge_l
+            bad_epochs = 0
             torch.save(model.state_dict(), Path(args.output_dir) / "pytorch_model.bin")
             json.dump(vars(args) | {"vocab_size": len(vocab)}, open(Path(args.output_dir) / "latentqa_config.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
             json.dump(vocab, open(Path(args.output_dir) / "vocab.json", "w", encoding="utf-8"), ensure_ascii=False)
+        else:
+            bad_epochs += 1
+            print(f"dev ROUGE-L did not improve for {bad_epochs}/{args.patience} epochs")
+            if bad_epochs >= args.patience:
+                print(f"Early stopping at epoch {epoch}; best_dev_rouge_l={best_dev_rouge:.4f}")
+                break
 
 
 if __name__ == "__main__":

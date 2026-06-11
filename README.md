@@ -15,10 +15,14 @@ The processed dataset files are expected at:
 
 Each prediction file is JSONL with `prediction` and `reference` fields. The evaluator reports:
 
-- `bleu_4`
 - `rouge_l`
 - `meteor`
-- `bertscore_precision`, `bertscore_recall`, `bertscore_f1` when `--bertscore` is enabled
+- `bertscore_precision`, `bertscore_recall`, `bertscore_f1` by default
+
+Use `BERTSCORE=0` in pipeline scripts, or `--no-bertscore` with `scripts/evaluate_predictions.py`, to disable BERTScore.
+
+Training uses the same stopping policy for all models: save the best checkpoint
+by dev ROUGE-L and stop after `patience` epochs without dev ROUGE-L improvement.
 
 ## Install
 
@@ -35,10 +39,41 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_cpg_snet_latentqa.sh
 ```
 
+Run one model at a time:
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_cpg.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_snet.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_latentqa.sh
+```
+
 ## Full Run
 
 ```bash
 BERTSCORE=1 scripts/pipelines/run_cpg_snet_latentqa.sh
+```
+
+Individual full runs:
+
+```bash
+BERTSCORE=1 scripts/pipelines/run_cpg.sh
+```
+
+```bash
+BERTSCORE=1 scripts/pipelines/run_snet.sh
+```
+
+```bash
+BERTSCORE=1 scripts/pipelines/run_latentqa.sh
 ```
 
 ## H100 60GB Full Run
@@ -46,8 +81,25 @@ BERTSCORE=1 scripts/pipelines/run_cpg_snet_latentqa.sh
 The default pipeline settings are tuned for a single H100 60GB:
 
 ```bash
-DEVICE=cuda AMP=bf16 NUM_WORKERS=16 BERTSCORE=0 \
+DEVICE=cuda AMP=bf16 NUM_WORKERS=4 \
   scripts/pipelines/run_cpg_snet_latentqa.sh
+```
+
+Individual H100 runs:
+
+```bash
+DEVICE=cuda AMP=bf16 NUM_WORKERS=4 CPG_EPOCHS=20 CPG_PATIENCE=3 \
+  scripts/pipelines/run_cpg.sh
+```
+
+```bash
+DEVICE=cuda AMP=bf16 NUM_WORKERS=4 SNET_EPOCHS=20 SNET_PATIENCE=3 \
+  scripts/pipelines/run_snet.sh
+```
+
+```bash
+DEVICE=cuda AMP=bf16 NUM_WORKERS=4 LATENTQA_EPOCHS=20 LATENTQA_PATIENCE=3 \
+  scripts/pipelines/run_latentqa.sh
 ```
 
 The concrete values are recorded in `configs/h100_full_training.json`.

@@ -9,17 +9,20 @@ CONTEXT_DIR=${CONTEXT_DIR:-$DATA_DIR/contexts}
 TRAIN_LIMIT=${TRAIN_LIMIT:-}
 DEV_LIMIT=${DEV_LIMIT:-}
 TEST_LIMIT=${TEST_LIMIT:-}
-BERTSCORE=${BERTSCORE:-0}
+BERTSCORE=${BERTSCORE:-1}
 BERTSCORE_MODEL=${BERTSCORE_MODEL:-bert-base-multilingual-cased}
+BERTSCORE_BATCH_SIZE=${BERTSCORE_BATCH_SIZE:-16}
 AMP=${AMP:-bf16}
 NUM_WORKERS=${NUM_WORKERS:-4}
 DEVICE=${DEVICE:-cuda}
+BERTSCORE_DEVICE=${BERTSCORE_DEVICE:-$DEVICE}
 
 MODEL_DIR=${MODEL_DIR:-models/latentqa}
 PREDICTIONS=${PREDICTIONS:-outputs/latentqa_predictions.jsonl}
 METRICS=${METRICS:-outputs/latentqa_metrics.json}
 LATENTQA_BATCH_SIZE=${LATENTQA_BATCH_SIZE:-64}
-LATENTQA_EPOCHS=${LATENTQA_EPOCHS:-2}
+LATENTQA_EPOCHS=${LATENTQA_EPOCHS:-20}
+LATENTQA_PATIENCE=${LATENTQA_PATIENCE:-3}
 LATENTQA_MAX_CONTEXT_TOKENS=${LATENTQA_MAX_CONTEXT_TOKENS:-800}
 LATENTQA_MAX_ANSWER_TOKENS=${LATENTQA_MAX_ANSWER_TOKENS:-96}
 
@@ -31,9 +34,12 @@ limit_args() {
   fi
 }
 
-bert_args=()
-if [[ "$BERTSCORE" == "1" ]]; then
-  bert_args=(--bertscore --bertscore-model "$BERTSCORE_MODEL")
+bert_args=(--bertscore-model "$BERTSCORE_MODEL" --bertscore-batch-size "$BERTSCORE_BATCH_SIZE")
+if [[ -n "$BERTSCORE_DEVICE" ]]; then
+  bert_args+=(--bertscore-device "$BERTSCORE_DEVICE")
+fi
+if [[ "$BERTSCORE" == "0" ]]; then
+  bert_args=(--no-bertscore)
 fi
 
 python3 scripts/train_latentqa.py \
@@ -46,6 +52,7 @@ python3 scripts/train_latentqa.py \
   --num-workers "$NUM_WORKERS" \
   --batch-size "$LATENTQA_BATCH_SIZE" \
   --epochs "$LATENTQA_EPOCHS" \
+  --patience "$LATENTQA_PATIENCE" \
   --max-context-tokens "$LATENTQA_MAX_CONTEXT_TOKENS" \
   --max-answer-tokens "$LATENTQA_MAX_ANSWER_TOKENS" \
   $(limit_args train-limit "$TRAIN_LIMIT") \

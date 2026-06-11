@@ -11,23 +11,29 @@
     "device": "cuda",
     "amp": "bf16",
     "num_workers": 4,
-    "bertscore": false
+    "bertscore": true,
+    "early_stopping_metric": "dev_rouge_l",
+    "patience": 3,
+    "final_evaluation": ["rouge_l", "meteor", "bertscore_precision", "bertscore_recall", "bertscore_f1"]
   },
   "cpg": {
     "batch_size": 16,
-    "epochs": 2,
+    "epochs": 20,
+    "patience": 3,
     "max_context_tokens": 1200,
     "max_answer_tokens": 96
   },
   "snet": {
     "batch_size": 64,
-    "epochs": 2,
+    "epochs": 20,
+    "patience": 3,
     "max_context_tokens": 800,
     "max_answer_tokens": 96
   },
   "latentqa": {
     "batch_size": 64,
-    "epochs": 2,
+    "epochs": 20,
+    "patience": 3,
     "max_context_tokens": 800,
     "max_answer_tokens": 96
   }

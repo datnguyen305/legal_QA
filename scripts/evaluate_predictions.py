@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Evaluate generated Legal QA answers with BLEU@4, ROUGE-L, METEOR, and BERTScore."""
+"""Evaluate generated Legal QA answers with ROUGE-L, METEOR, and BERTScore."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -18,25 +18,16 @@ def tokenize(text: str) -> list[str]:
     return TOKEN_RE.findall((text or "").lower())
 
 
-def ngrams(tokens: list[str], n: int) -> Counter[tuple[str, ...]]:
-    return Counter(tuple(tokens[i : i + n]) for i in range(max(0, len(tokens) - n + 1)))
-
-
-def bleu4(prediction: str, reference: str) -> float:
-    pred = tokenize(prediction)
-    ref = tokenize(reference)
-    if not pred or not ref:
-        return 0.0
-    precisions = []
-    for n in range(1, 5):
-        p_counts = ngrams(pred, n)
-        r_counts = ngrams(ref, n)
-        overlap = sum(min(count, r_counts[gram]) for gram, count in p_counts.items())
-        total = sum(p_counts.values())
-        # Chen-Cherry style smoothing for sentence-level BLEU.
-        precisions.append((overlap + 1.0) / (total + 1.0))
-    bp = 1.0 if len(pred) > len(ref) else math.exp(1.0 - len(ref) / max(1, len(pred)))
-    return bp * math.exp(sum(math.log(p) for p in precisions) / 4)
+def progress_bar(label: str, current: int, total: int, width: int = 30) -> None:
+    total = max(1, total)
+    current = min(current, total)
+    filled = int(width * current / total)
+    bar = "#" * filled + "-" * (width - filled)
+    percent = 100 * current / total
+    sys.stderr.write(f"\r{label}: [{bar}] {current}/{total} ({percent:5.1f}%)")
+    if current >= total:
+        sys.stderr.write("\n")
+    sys.stderr.flush()
 
 
 def lcs_len(a: list[str], b: list[str]) -> int:
@@ -113,7 +104,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", required=True, help="JSONL with prediction and reference fields")
     parser.add_argument("--output", default=None)
-    parser.add_argument("--bertscore", action="store_true")
+    parser.add_argument("--no-bertscore", action="store_true", help="Disable BERTScore. BERTScore is enabled by default.")
     parser.add_argument("--bertscore-model", default="bert-base-multilingual-cased")
     parser.add_argument("--bertscore-batch-size", type=int, default=16)
     parser.add_argument("--bertscore-device", default=None)
@@ -122,19 +113,23 @@ def main() -> None:
     rows = read_predictions(args.predictions)
     references = [row.get("reference", row.get("answer", "")) for row in rows]
     predictions = [row.get("prediction", "") for row in rows]
-    bertscore = bertscore_scores(predictions, references, args.bertscore_model, args.bertscore_batch_size, args.bertscore_device) if args.bertscore else None
+    bertscore = None
+    if not args.no_bertscore:
+        print(f"Computing BERTScore for {len(rows)} predictions with {args.bertscore_model}", file=sys.stderr, flush=True)
+        bertscore = bertscore_scores(predictions, references, args.bertscore_model, args.bertscore_batch_size, args.bertscore_device)
     detailed = []
     for i, (row, pred, ref) in enumerate(zip(rows, predictions, references)):
-        item = {"id": row.get("id"), "bleu_4": bleu4(pred, ref), "rouge_l": rouge_l(pred, ref), "meteor": meteor(pred, ref)}
+        item = {"id": row.get("id"), "rouge_l": rouge_l(pred, ref), "meteor": meteor(pred, ref)}
         if bertscore is not None:
             p, r, f1 = bertscore
             item["bertscore_precision"] = p[i]
             item["bertscore_recall"] = r[i]
             item["bertscore_f1"] = f1[i]
         detailed.append(item)
+        if i + 1 == len(rows) or (i + 1) % 500 == 0:
+            progress_bar("Evaluate lexical metrics", i + 1, len(rows))
     summary = {
         "count": len(rows),
-        "bleu_4": sum(x["bleu_4"] for x in detailed) / len(detailed) if detailed else 0.0,
         "rouge_l": sum(x["rouge_l"] for x in detailed) / len(detailed) if detailed else 0.0,
         "meteor": sum(x["meteor"] for x in detailed) / len(detailed) if detailed else 0.0,
     }
