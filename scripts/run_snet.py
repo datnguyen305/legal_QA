@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Run S-NET extraction-then-synthesis inference."""
+"""Run S-NET GRU extraction-then-synthesis inference."""
 
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 
 from data_preprocessing.legalqa_data import load_examples, write_jsonl
-from data_preprocessing.qa_preprocess import normalize_space
-from model_architectures.snet_model import select_evidence_sentence, snet_input
+from data_preprocessing.qa_preprocess import normalize_space, tokenize
+from model_architectures.snet_model import SNetSynthesis, select_evidence_sentence, token_feature_flags
+from train_cpg import encode
 
 
 def main() -> None:
@@ -16,34 +19,62 @@ def main() -> None:
     parser.add_argument("--data", default="dataset/test_data.json")
     parser.add_argument("--output", default="outputs/snet_predictions.jsonl")
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--max-context-chars", type=int, default=12000)
-    parser.add_argument("--max-input-length", type=int, default=1024)
-    parser.add_argument("--max-new-tokens", type=int, default=128)
-    parser.add_argument("--num-beams", type=int, default=4)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
     try:
         import torch
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
     except ImportError as exc:
-        raise SystemExit("S-NET inference requires torch and transformers.") from exc
+        raise SystemExit("S-NET inference requires PyTorch.") from exc
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_dir)
-    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_dir)
+    config = json.load(open(Path(args.model_dir) / "snet_config.json", encoding="utf-8"))
+    vocab = json.load(open(Path(args.model_dir) / "vocab.json", encoding="utf-8"))
+    inv_vocab = {idx: tok for tok, idx in vocab.items()}
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    model = SNetSynthesis(
+        config["vocab_size"],
+        vocab["<pad>"],
+        vocab["<bos>"],
+        vocab["<eos>"],
+        embed_size=config["embed_size"],
+        feature_size=config["feature_size"],
+        hidden_size=config["hidden_size"],
+    ).to(device)
+    model.load_state_dict(torch.load(Path(args.model_dir) / "pytorch_model.bin", map_location=device))
     model.eval()
+
     rows = []
     for ex in load_examples(args.data, args.limit):
+        context = normalize_space(ex.get("context", ""))[: config["max_context_chars"]]
         question = normalize_space(ex.get("question", ""))
-        context = normalize_space(ex.get("context", ""))[: args.max_context_chars]
+        passage_tokens = tokenize(context)[: config["max_context_tokens"]]
         evidence = select_evidence_sentence(question, context).text
-        encoded = tokenizer(snet_input(question, context, evidence), max_length=args.max_input_length, truncation=True, return_tensors="pt").to(device)
+        evidence_start = context.find(evidence) if evidence else -1
+        evidence_end = evidence_start + len(evidence) if evidence_start >= 0 else -1
+        start_flags, end_flags = token_feature_flags(
+            passage_tokens,
+            context,
+            evidence_start if evidence_start >= 0 else None,
+            evidence_end if evidence_end > evidence_start else None,
+        )
+        start_flags = start_flags[: config["max_context_tokens"]] + [0] * (config["max_context_tokens"] - len(start_flags))
+        end_flags = end_flags[: config["max_context_tokens"]] + [0] * (config["max_context_tokens"] - len(end_flags))
+        batch = {
+            "passage_ids": torch.tensor([encode(passage_tokens, vocab, config["max_context_tokens"])], dtype=torch.long, device=device),
+            "question_ids": torch.tensor([encode(tokenize(question), vocab, config["max_question_tokens"])], dtype=torch.long, device=device),
+            "start_features": torch.tensor([start_flags[: config["max_context_tokens"]]], dtype=torch.long, device=device),
+            "end_features": torch.tensor([end_flags[: config["max_context_tokens"]]], dtype=torch.long, device=device),
+        }
         with torch.no_grad():
-            ids = model.generate(**encoded, max_new_tokens=args.max_new_tokens, num_beams=args.num_beams)
-        prediction = tokenizer.decode(ids[0], skip_special_tokens=True)
-        rows.append({"id": ex.get("id"), "question": question, "reference": ex.get("answer", ""), "prediction": prediction, "model": "S-NET"})
+            output = model(**batch, max_answer_len=config["max_answer_tokens"])
+        words = []
+        for idx in output.logits[0].argmax(dim=-1).detach().cpu().tolist():
+            word = inv_vocab.get(idx, "<unk>")
+            if word == "<eos>":
+                break
+            if word not in {"<pad>", "<bos>"}:
+                words.append(word)
+        rows.append({"id": ex.get("id"), "question": question, "reference": ex.get("answer", ""), "prediction": " ".join(words), "model": "S-NET"})
     write_jsonl(args.output, rows)
     print(f"Wrote {len(rows)} predictions to {args.output}")
 

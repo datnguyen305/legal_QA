@@ -3,7 +3,7 @@
 This workspace contains runnable implementations for three proposed QA methods:
 
 - **CPG**: curriculum pointer-generator with an Introspective Alignment Layer.
-- **S-NET**: evidence extraction followed by seq2seq answer synthesis.
+- **S-NET**: evidence extraction followed by GRU seq2seq answer synthesis with evidence start/end feature embeddings, trained from scratch.
 - **LatentQA**: stochastic selector network that marginalizes answer tokens over vocabulary, question-copy, and context-copy sources.
 
 The processed dataset files are expected at:
