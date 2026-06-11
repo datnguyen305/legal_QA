@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from contextlib import nullcontext
 from pathlib import Path
 
 from data_preprocessing.cpg_preprocess import load_cpg_records, sample_gold_context
@@ -55,9 +56,12 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--decoder-hidden", type=int, default=256)
     parser.add_argument("--block-size", type=int, default=200)
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1.0)
+    parser.add_argument("--amp", choices=("none", "fp16", "bf16"), default="bf16")
+    parser.add_argument("--grad-clip", type=float, default=5.0)
+    parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
@@ -102,27 +106,53 @@ def main() -> None:
             }
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    use_amp = args.amp != "none" and device.startswith("cuda")
+    amp_dtype = torch.bfloat16 if args.amp == "bf16" else torch.float16
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp and args.amp == "fp16")
+
+    def autocast_context():
+        if use_amp:
+            return torch.autocast(device_type="cuda", dtype=amp_dtype)
+        return nullcontext()
+
     model = CurriculumPointerGenerator(
         len(vocab), vocab["<pad>"], vocab["<unk>"], vocab["<bos>"], vocab["<eos>"],
         hidden=args.hidden, decoder_hidden=args.decoder_hidden, block_size=args.block_size,
     ).to(device)
     optimizer = torch.optim.Adadelta(model.parameters(), lr=args.lr)
-    dev_loader = DataLoader(CpgDataset(dev_records), batch_size=args.batch_size)
+    loader_kwargs = {
+        "num_workers": args.num_workers,
+        "pin_memory": device.startswith("cuda"),
+        "persistent_workers": args.num_workers > 0,
+    }
+    dev_loader = DataLoader(CpgDataset(dev_records), batch_size=args.batch_size, **loader_kwargs)
     best_dev = None
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         easy_ratio = max(0.0, args.easy_ratio - (epoch - 1) * args.easy_ratio_decay)
         epoch_records = load_cpg_records(args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, easy_ratio, seed=23 + epoch)
-        train_loader = DataLoader(CpgDataset(epoch_records), batch_size=args.batch_size, shuffle=True)
+        train_loader = DataLoader(CpgDataset(epoch_records), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
         model.train()
         total = 0.0
         for step, batch in enumerate(train_loader, start=1):
             batch = {k: v.to(device) for k, v in batch.items()}
-            out = model(**batch)
-            out.loss.backward()
-            optimizer.step()
+            with autocast_context():
+                out = model(**batch)
+                loss = out.loss
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                if args.grad_clip > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
             optimizer.zero_grad()
-            total += float(out.loss.detach().cpu())
+            total += float(loss.detach().float().cpu())
             if step % 100 == 0:
                 print(f"epoch={epoch} step={step}/{len(train_loader)} loss={total / step:.4f}")
         model.eval()
@@ -130,7 +160,9 @@ def main() -> None:
         with torch.no_grad():
             for batch in dev_loader:
                 batch = {k: v.to(device) for k, v in batch.items()}
-                dev_loss += float(model(**batch).loss.detach().cpu())
+                with autocast_context():
+                    loss = model(**batch).loss
+                dev_loss += float(loss.detach().float().cpu())
         dev_loss /= max(1, len(dev_loader))
         print(f"epoch={epoch} train_loss={total / max(1, len(train_loader)):.4f} dev_loss={dev_loss:.4f}")
         if best_dev is None or dev_loss < best_dev:

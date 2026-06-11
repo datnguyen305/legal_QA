@@ -41,6 +41,17 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
 BERTSCORE=1 scripts/pipelines/run_cpg_snet_latentqa.sh
 ```
 
+## H100 60GB Full Run
+
+The default pipeline settings are tuned for a single H100 60GB:
+
+```bash
+DEVICE=cuda AMP=bf16 NUM_WORKERS=4 BERTSCORE=0 \
+  scripts/pipelines/run_cpg_snet_latentqa.sh
+```
+
+The concrete values are recorded in `configs/h100_full_training.json`.
+
 Metrics are written to:
 
 - `outputs/cpg_metrics.json`

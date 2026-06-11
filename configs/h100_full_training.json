@@ -1,0 +1,34 @@
+{
+  "hardware": "H100 60GB",
+  "data": {
+    "train": "dataset/train_data.json",
+    "dev": "dataset/dev_data.json",
+    "test": "dataset/test_data.json",
+    "contexts": "dataset/contexts",
+    "limits": null
+  },
+  "runtime": {
+    "device": "cuda",
+    "amp": "bf16",
+    "num_workers": 4,
+    "bertscore": false
+  },
+  "cpg": {
+    "batch_size": 16,
+    "epochs": 2,
+    "max_context_tokens": 1200,
+    "max_answer_tokens": 96
+  },
+  "snet": {
+    "batch_size": 64,
+    "epochs": 2,
+    "max_context_tokens": 800,
+    "max_answer_tokens": 96
+  },
+  "latentqa": {
+    "batch_size": 64,
+    "epochs": 2,
+    "max_context_tokens": 800,
+    "max_answer_tokens": 96
+  }
+}

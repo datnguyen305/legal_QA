@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 from data_preprocessing.legalqa_data import load_examples
@@ -52,9 +53,12 @@ def main() -> None:
     parser.add_argument("--embed-size", type=int, default=300)
     parser.add_argument("--feature-size", type=int, default=50)
     parser.add_argument("--hidden-size", type=int, default=150)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--amp", choices=("none", "fp16", "bf16"), default="bf16")
+    parser.add_argument("--grad-clip", type=float, default=5.0)
+    parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
@@ -114,6 +118,15 @@ def main() -> None:
             }
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    use_amp = args.amp != "none" and device.startswith("cuda")
+    amp_dtype = torch.bfloat16 if args.amp == "bf16" else torch.float16
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp and args.amp == "fp16")
+
+    def autocast_context():
+        if use_amp:
+            return torch.autocast(device_type="cuda", dtype=amp_dtype)
+        return nullcontext()
+
     model = SNetSynthesis(
         len(vocab),
         vocab["<pad>"],
@@ -124,8 +137,13 @@ def main() -> None:
         hidden_size=args.hidden_size,
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    train_loader = DataLoader(SNetDataset(train_rows), batch_size=args.batch_size, shuffle=True)
-    dev_loader = DataLoader(SNetDataset(dev_rows), batch_size=args.batch_size)
+    loader_kwargs = {
+        "num_workers": args.num_workers,
+        "pin_memory": device.startswith("cuda"),
+        "persistent_workers": args.num_workers > 0,
+    }
+    train_loader = DataLoader(SNetDataset(train_rows), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(SNetDataset(dev_rows), batch_size=args.batch_size, **loader_kwargs)
     best_dev = None
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
@@ -133,11 +151,23 @@ def main() -> None:
         total = 0.0
         for step, batch in enumerate(train_loader, start=1):
             batch = {key: value.to(device) for key, value in batch.items()}
-            output = model(**batch)
-            output.loss.backward()
-            optimizer.step()
+            with autocast_context():
+                output = model(**batch)
+                loss = output.loss
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                if args.grad_clip > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
             optimizer.zero_grad()
-            total += float(output.loss.detach().cpu())
+            total += float(loss.detach().float().cpu())
             if step % 100 == 0:
                 print(f"epoch={epoch} step={step}/{len(train_loader)} loss={total / step:.4f}")
         model.eval()
@@ -145,7 +175,9 @@ def main() -> None:
         with torch.no_grad():
             for batch in dev_loader:
                 batch = {key: value.to(device) for key, value in batch.items()}
-                dev_loss += float(model(**batch).loss.detach().cpu())
+                with autocast_context():
+                    loss = model(**batch).loss
+                dev_loss += float(loss.detach().float().cpu())
         dev_loss /= max(1, len(dev_loader))
         print(f"epoch={epoch} train_loss={total / max(1, len(train_loader)):.4f} dev_loss={dev_loss:.4f}")
         if best_dev is None or dev_loss < best_dev:
