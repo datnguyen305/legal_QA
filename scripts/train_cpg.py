@@ -8,7 +8,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from data_preprocessing.cpg_preprocess import load_cpg_records
+from data_preprocessing.cpg_preprocess import load_cpg_records, sample_gold_context
+from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import tokenize
 
 
@@ -40,6 +41,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-data", default="dataset/train_data.json")
     parser.add_argument("--dev-data", default="dataset/dev_data.json")
+    parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", default="models/cpg")
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--dev-limit", type=int, default=None)
@@ -68,10 +70,20 @@ def main() -> None:
     from model_architectures.cpg_model import CurriculumPointerGenerator
 
     chunk_sizes = [int(x) for x in args.chunk_sizes.split(",") if x.strip()]
-    train_records = load_cpg_records(args.train_data, args.train_limit, chunk_sizes, args.max_context_tokens, args.easy_ratio)
-    dev_records = load_cpg_records(args.dev_data, args.dev_limit, chunk_sizes, args.max_context_tokens, 0.5)
+    train_records = load_cpg_records(args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, args.easy_ratio)
+    dev_records = load_cpg_records(args.dev_data, args.context_dir, args.dev_limit, chunk_sizes, args.max_context_tokens, 0.5)
     if not train_records or not dev_records:
-        raise SystemExit("No CPG records were created.")
+        train_probe = load_examples(args.train_data, 1)
+        dev_probe = load_examples(args.dev_data, 1)
+        train_keys = sorted(train_probe[0].keys()) if train_probe else []
+        dev_keys = sorted(dev_probe[0].keys()) if dev_probe else []
+        raise SystemExit(
+            "No CPG records were created. CPG only uses the current sample's gold context: "
+            "either embedded sample text or the contexts[*].content file referenced by that sample. "
+            "It does not search across the context pool. "
+            f"First train keys={train_keys}, gold_context_found={bool(train_probe and sample_gold_context(train_probe[0], args.context_dir))}; "
+            f"first dev keys={dev_keys}, gold_context_found={bool(dev_probe and sample_gold_context(dev_probe[0], args.context_dir))}."
+        )
     vocab = build_vocab(train_records + dev_records, args.min_freq)
 
     class CpgDataset(Dataset):
@@ -100,7 +112,7 @@ def main() -> None:
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         easy_ratio = max(0.0, args.easy_ratio - (epoch - 1) * args.easy_ratio_decay)
-        epoch_records = load_cpg_records(args.train_data, args.train_limit, chunk_sizes, args.max_context_tokens, easy_ratio, seed=23 + epoch)
+        epoch_records = load_cpg_records(args.train_data, args.context_dir, args.train_limit, chunk_sizes, args.max_context_tokens, easy_ratio, seed=23 + epoch)
         train_loader = DataLoader(CpgDataset(epoch_records), batch_size=args.batch_size, shuffle=True)
         model.train()
         total = 0.0

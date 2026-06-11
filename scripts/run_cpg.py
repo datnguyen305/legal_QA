@@ -17,6 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--data", default="dataset/test_data.json")
+    parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output", default="outputs/cpg_predictions.jsonl")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--chunk-size", type=int, default=200)
@@ -45,7 +46,7 @@ def main() -> None:
 
     rows = []
     for ex in load_examples(args.data, args.limit):
-        record = make_cpg_record(ex, args.chunk_size, max_context_tokens, query_mode="question")
+        record = make_cpg_record(ex, args.context_dir, args.chunk_size, max_context_tokens, query_mode="question")
         prediction = ""
         if record is not None:
             batch = {

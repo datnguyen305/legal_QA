@@ -5,8 +5,54 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from data_preprocessing.legalqa_data import load_examples
+from data_preprocessing.legalqa_data import context_text, load_examples
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
+
+
+EMBEDDED_CONTEXT_FIELDS = (
+    "context",
+    "gold_context",
+    "gold_context_text",
+    "passage",
+    "paragraph",
+    "source_context",
+    "source",
+)
+
+
+def sample_gold_context(example: dict[str, Any], context_dir: str) -> str:
+    """Return only the gold context attached to the current sample.
+
+    This does not search the context pool. It first uses context text embedded
+    in the sample, then falls back to the ``contexts[*].content`` filename(s)
+    referenced by that same sample.
+    """
+    for field in EMBEDDED_CONTEXT_FIELDS:
+        value = example.get(field)
+        if isinstance(value, str) and value.strip():
+            return normalize_space(value)
+        if isinstance(value, list):
+            parts = [item for item in value if isinstance(item, str) and item.strip()]
+            if parts:
+                return normalize_space(" ".join(parts))
+
+    contexts = example.get("contexts")
+    context_values = contexts.values() if isinstance(contexts, dict) else contexts
+    if isinstance(context_values, list) or hasattr(context_values, "__iter__"):
+        parts: list[str] = []
+        for ctx in context_values:
+            if isinstance(ctx, str) and ctx.strip():
+                parts.append(ctx)
+            elif isinstance(ctx, dict):
+                for field in EMBEDDED_CONTEXT_FIELDS:
+                    value = ctx.get(field)
+                    if isinstance(value, str) and value.strip():
+                        parts.append(value)
+                        break
+        if parts:
+            return normalize_space(" ".join(parts))
+
+    return context_text(example, context_dir, None, prefer_article=False)
 
 
 def chunk_tokens(tokens: list[str], chunk_size: int) -> list[list[str]]:
@@ -35,11 +81,12 @@ def retrieve_context(raw_context: str, query: str, chunk_size: int, max_context_
 
 def make_cpg_record(
     example: dict[str, Any],
+    context_dir: str,
     chunk_size: int,
     max_context_tokens: int,
     query_mode: str,
 ) -> dict[str, Any] | None:
-    raw_context = normalize_space(example.get("context", ""))
+    raw_context = sample_gold_context(example, context_dir)
     if not raw_context:
         return None
     question = normalize_space(example.get("question", ""))
@@ -61,6 +108,7 @@ def make_cpg_record(
 
 def load_cpg_records(
     data_path: str,
+    context_dir: str,
     limit: int | None,
     chunk_sizes: list[int],
     max_context_tokens: int,
@@ -72,7 +120,7 @@ def load_cpg_records(
     for example in load_examples(data_path, limit):
         chunk_size = rng.choice(chunk_sizes)
         query_mode = "answer" if rng.random() < easy_ratio else "question"
-        record = make_cpg_record(example, chunk_size, max_context_tokens, query_mode)
+        record = make_cpg_record(example, context_dir, chunk_size, max_context_tokens, query_mode)
         if record is not None:
             records.append(record)
     return records
