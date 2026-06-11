@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
+from data_preprocessing.cpg_preprocess import sample_gold_context
 from data_preprocessing.legalqa_data import load_examples, write_jsonl
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
 from train_cpg import encode
@@ -16,6 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--data", default="dataset/test_data.json")
+    parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output", default="outputs/latentqa_predictions.jsonl")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default=None)
@@ -37,7 +39,7 @@ def main() -> None:
     model.eval()
     rows = []
     for ex in load_examples(args.data, args.limit):
-        context = normalize_space(ex.get("context", ""))[: config["max_context_chars"]]
+        context = sample_gold_context(ex, args.context_dir)[: config["max_context_chars"]]
         batch = {
             "context_ids": torch.tensor([encode(tokenize(context), vocab, config["max_context_tokens"])], dtype=torch.long, device=device),
             "question_ids": torch.tensor([encode(tokenize(ex.get("question", "")), vocab, config["max_question_tokens"])], dtype=torch.long, device=device),

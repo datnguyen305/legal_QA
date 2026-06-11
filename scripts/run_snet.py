@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
+from data_preprocessing.cpg_preprocess import sample_gold_context
 from data_preprocessing.legalqa_data import load_examples, write_jsonl
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
 from model_architectures.snet_model import SNetSynthesis, select_evidence_sentence, token_feature_flags
@@ -17,6 +18,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--data", default="dataset/test_data.json")
+    parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output", default="outputs/snet_predictions.jsonl")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default=None)
@@ -45,7 +47,7 @@ def main() -> None:
 
     rows = []
     for ex in load_examples(args.data, args.limit):
-        context = normalize_space(ex.get("context", ""))[: config["max_context_chars"]]
+        context = sample_gold_context(ex, args.context_dir)[: config["max_context_chars"]]
         question = normalize_space(ex.get("question", ""))
         passage_tokens = tokenize(context)[: config["max_context_tokens"]]
         evidence = select_evidence_sentence(question, context).text

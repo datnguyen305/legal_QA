@@ -8,15 +8,16 @@ import json
 from pathlib import Path
 
 from data_preprocessing.legalqa_data import load_examples
+from data_preprocessing.cpg_preprocess import sample_gold_context
 from data_preprocessing.qa_preprocess import normalize_space, tokenize
 from model_architectures.snet_model import SNetSynthesis, token_feature_flags
 from train_cpg import build_vocab, encode
 
 
-def build_rows(path: str, limit: int | None, max_context_chars: int) -> list[dict]:
+def build_rows(path: str, context_dir: str, limit: int | None, max_context_chars: int) -> list[dict]:
     rows = []
     for ex in load_examples(path, limit):
-        context = normalize_space(ex.get("context", ""))[:max_context_chars]
+        context = sample_gold_context(ex, context_dir)[:max_context_chars]
         question = normalize_space(ex.get("question", ""))
         answer = normalize_space(ex.get("answer", ""))
         if not context or not question or not answer:
@@ -38,6 +39,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-data", default="dataset/train_data.json")
     parser.add_argument("--dev-data", default="dataset/dev_data.json")
+    parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", default="models/snet")
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--dev-limit", type=int, default=None)
@@ -62,10 +64,19 @@ def main() -> None:
     except ImportError as exc:
         raise SystemExit("S-NET training requires PyTorch.") from exc
 
-    train_rows = build_rows(args.train_data, args.train_limit, args.max_context_chars)
-    dev_rows = build_rows(args.dev_data, args.dev_limit, args.max_context_chars)
+    train_rows = build_rows(args.train_data, args.context_dir, args.train_limit, args.max_context_chars)
+    dev_rows = build_rows(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars)
     if not train_rows or not dev_rows:
-        raise SystemExit("No S-NET rows were created.")
+        train_probe = load_examples(args.train_data, 1)
+        dev_probe = load_examples(args.dev_data, 1)
+        train_keys = sorted(train_probe[0].keys()) if train_probe else []
+        dev_keys = sorted(dev_probe[0].keys()) if dev_probe else []
+        raise SystemExit(
+            "No S-NET rows were created. S-NET uses only the current sample's gold context: "
+            "embedded sample text or the contexts[*].content file referenced by that sample. "
+            f"First train keys={train_keys}, gold_context_found={bool(train_probe and sample_gold_context(train_probe[0], args.context_dir))}; "
+            f"first dev keys={dev_keys}, gold_context_found={bool(dev_probe and sample_gold_context(dev_probe[0], args.context_dir))}."
+        )
     vocab = build_vocab(train_rows + dev_rows, args.min_freq)
     if len(vocab) > args.vocab_size:
         keep = {tok: idx for tok, idx in vocab.items() if idx < 4}

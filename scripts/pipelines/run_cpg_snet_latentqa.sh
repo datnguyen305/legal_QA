@@ -29,10 +29,10 @@ python3 scripts/train_cpg.py --train-data "$TRAIN_DATA" --dev-data "$DEV_DATA" -
 python3 scripts/run_cpg.py --model-dir models/cpg --data "$TEST_DATA" --context-dir "$CONTEXT_DIR" --output outputs/cpg_predictions.jsonl $(limit_args limit "$TEST_LIMIT")
 python3 scripts/evaluate_predictions.py --predictions outputs/cpg_predictions.jsonl --output outputs/cpg_metrics.json "${bert_args[@]}"
 
-python3 scripts/train_snet.py --train-data "$TRAIN_DATA" --dev-data "$DEV_DATA" --output-dir models/snet $(limit_args train-limit "$TRAIN_LIMIT") $(limit_args dev-limit "$DEV_LIMIT")
-python3 scripts/run_snet.py --model-dir models/snet --data "$TEST_DATA" --output outputs/snet_predictions.jsonl $(limit_args limit "$TEST_LIMIT")
+python3 scripts/train_snet.py --train-data "$TRAIN_DATA" --dev-data "$DEV_DATA" --context-dir "$CONTEXT_DIR" --output-dir models/snet $(limit_args train-limit "$TRAIN_LIMIT") $(limit_args dev-limit "$DEV_LIMIT")
+python3 scripts/run_snet.py --model-dir models/snet --data "$TEST_DATA" --context-dir "$CONTEXT_DIR" --output outputs/snet_predictions.jsonl $(limit_args limit "$TEST_LIMIT")
 python3 scripts/evaluate_predictions.py --predictions outputs/snet_predictions.jsonl --output outputs/snet_metrics.json "${bert_args[@]}"
 
-python3 scripts/train_latentqa.py --train-data "$TRAIN_DATA" --dev-data "$DEV_DATA" --output-dir models/latentqa $(limit_args train-limit "$TRAIN_LIMIT") $(limit_args dev-limit "$DEV_LIMIT")
-python3 scripts/run_latentqa.py --model-dir models/latentqa --data "$TEST_DATA" --output outputs/latentqa_predictions.jsonl $(limit_args limit "$TEST_LIMIT")
+python3 scripts/train_latentqa.py --train-data "$TRAIN_DATA" --dev-data "$DEV_DATA" --context-dir "$CONTEXT_DIR" --output-dir models/latentqa $(limit_args train-limit "$TRAIN_LIMIT") $(limit_args dev-limit "$DEV_LIMIT")
+python3 scripts/run_latentqa.py --model-dir models/latentqa --data "$TEST_DATA" --context-dir "$CONTEXT_DIR" --output outputs/latentqa_predictions.jsonl $(limit_args limit "$TEST_LIMIT")
 python3 scripts/evaluate_predictions.py --predictions outputs/latentqa_predictions.jsonl --output outputs/latentqa_metrics.json "${bert_args[@]}"
