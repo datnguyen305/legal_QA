@@ -97,6 +97,8 @@ def main() -> None:
     parser.add_argument("--amp", choices=("none", "fp16", "bf16"), default="bf16")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--pin-memory", type=int, choices=(0, 1), default=1)
+    parser.add_argument("--persistent-workers", type=int, choices=(0, 1), default=1)
     parser.add_argument("--dev-generate-batch-size", type=int, default=None)
     parser.add_argument("--dev-eval-limit", type=int, default=None, help="Limit dev examples used for ROUGE-L early stopping.")
     parser.add_argument("--dev-num-beams", type=int, default=1, help="Beams for dev ROUGE-L early stopping generation.")
@@ -180,8 +182,8 @@ def main() -> None:
     model.to(device)
     loader_kwargs = {
         "num_workers": args.num_workers,
-        "pin_memory": device.startswith("cuda"),
-        "persistent_workers": args.num_workers > 0,
+        "pin_memory": device.startswith("cuda") and bool(args.pin_memory),
+        "persistent_workers": args.num_workers > 0 and bool(args.persistent_workers),
     }
     print("Building tokenized train dataset", flush=True)
     train_dataset = Seq2SeqDataset(train_rows)

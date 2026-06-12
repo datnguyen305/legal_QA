@@ -104,6 +104,15 @@ MODEL_KEY=mt5 scripts/pipelines/run_pretrained_seq2seq.sh
 MODEL_KEY=mbart scripts/pipelines/run_pretrained_seq2seq.sh
 ```
 
+For H100 MIG environments, the pretrained pipeline defaults to `PIN_MEMORY=0`
+and `PERSISTENT_WORKERS=0` to avoid PyTorch/NVML allocator crashes. If the run is
+stable and you want more input pipeline throughput, you can override them:
+
+```bash
+MODEL_KEY=vit5 PIN_MEMORY=1 PERSISTENT_WORKERS=1 \
+  scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
 Default model IDs:
 
 - `vit5`: `VietAI/vit5-base`

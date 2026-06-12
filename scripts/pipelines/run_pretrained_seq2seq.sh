@@ -14,9 +14,12 @@ BERTSCORE_MODEL=${BERTSCORE_MODEL:-bert-base-multilingual-cased}
 BERTSCORE_BATCH_SIZE=${BERTSCORE_BATCH_SIZE:-16}
 AMP=${AMP:-bf16}
 NUM_WORKERS=${NUM_WORKERS:-4}
+PIN_MEMORY=${PIN_MEMORY:-0}
+PERSISTENT_WORKERS=${PERSISTENT_WORKERS:-0}
 DEVICE=${DEVICE:-cuda}
 BERTSCORE_DEVICE=${BERTSCORE_DEVICE:-$DEVICE}
 export DISABLE_APEX=${DISABLE_APEX:-1}
+export PYTORCH_NVML_BASED_CUDA_CHECK=${PYTORCH_NVML_BASED_CUDA_CHECK:-0}
 
 MODEL_KEY=${MODEL_KEY:-vit5}
 MODEL_NAME=${MODEL_NAME:-}
@@ -117,6 +120,8 @@ python3 scripts/train_hf_seq2seq.py \
   --device "$DEVICE" \
   --amp "$AMP" \
   --num-workers "$NUM_WORKERS" \
+  --pin-memory "$PIN_MEMORY" \
+  --persistent-workers "$PERSISTENT_WORKERS" \
   --batch-size "$SEQ2SEQ_BATCH_SIZE" \
   --grad-accum-steps "$SEQ2SEQ_GRAD_ACCUM_STEPS" \
   --epochs "$SEQ2SEQ_EPOCHS" \
