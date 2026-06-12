@@ -6,6 +6,9 @@ This workspace contains runnable implementations for three proposed QA methods:
 - **S-NET**: evidence extraction followed by GRU seq2seq answer synthesis with evidence start/end feature embeddings, trained from scratch.
 - **LatentQA**: stochastic selector network that marginalizes answer tokens over vocabulary, question-copy, and context-copy sources.
 
+It also includes pretrained seq2seq fine-tuning pipelines for **ViT5**,
+**BARTpho**, **mT5**, and **mBART**.
+
 The processed dataset files are expected at:
 
 - `dataset/train_data.json`
@@ -56,6 +59,13 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_latentqa.sh
 ```
 
+Smoke test a pretrained seq2seq model:
+
+```bash
+MODEL_KEY=vit5 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
 ## Full Run
 
 ```bash
@@ -74,6 +84,38 @@ BERTSCORE=1 scripts/pipelines/run_snet.sh
 
 ```bash
 BERTSCORE=1 scripts/pipelines/run_latentqa.sh
+```
+
+Pretrained seq2seq full runs:
+
+```bash
+MODEL_KEY=vit5 scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
+```bash
+MODEL_KEY=bartpho scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
+```bash
+MODEL_KEY=mt5 scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
+```bash
+MODEL_KEY=mbart scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
+Default model IDs:
+
+- `vit5`: `VietAI/vit5-base`
+- `bartpho`: `vinai/bartpho-syllable`
+- `mt5`: `google/mt5-base`
+- `mbart`: `facebook/mbart-large-50-many-to-many-mmt`
+
+Override any model with `MODEL_NAME`, for example:
+
+```bash
+MODEL_KEY=vit5 MODEL_NAME=VietAI/vit5-large \
+  scripts/pipelines/run_pretrained_seq2seq.sh
 ```
 
 ## H100 60GB Full Run
@@ -115,3 +157,10 @@ Predictions are written to:
 - `outputs/cpg_predictions.jsonl`
 - `outputs/snet_predictions.jsonl`
 - `outputs/latentqa_predictions.jsonl`
+
+Pretrained seq2seq outputs use the model key, for example:
+
+- `outputs/vit5_predictions.jsonl`
+- `outputs/bartpho_predictions.jsonl`
+- `outputs/mt5_predictions.jsonl`
+- `outputs/mbart_predictions.jsonl`
