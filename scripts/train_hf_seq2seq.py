@@ -248,7 +248,7 @@ def main() -> None:
         if best_dev_rouge is None or dev_rouge_l > best_dev_rouge:
             best_dev_rouge = dev_rouge_l
             bad_epochs = 0
-            model.save_pretrained(args.output_dir)
+            model.save_pretrained(args.output_dir, safe_serialization=False)
             tokenizer.save_pretrained(args.output_dir)
             with (Path(args.output_dir) / "seq2seq_config.json").open("w", encoding="utf-8") as f:
                 json.dump(vars(args) | {"forced_bos_token_id": forced_bos_token_id}, f, ensure_ascii=False, indent=2)
