@@ -105,8 +105,11 @@ MODEL_KEY=mbart scripts/pipelines/run_pretrained_seq2seq.sh
 ```
 
 For H100 MIG environments, the pretrained pipeline defaults to `PIN_MEMORY=0`
-and `PERSISTENT_WORKERS=0` to avoid PyTorch/NVML allocator crashes. If the run is
-stable and you want more input pipeline throughput, you can override them:
+and `PERSISTENT_WORKERS=0` to avoid PyTorch/NVML allocator crashes. It also uses
+`SEQ2SEQ_BATCH_SIZE=8` with `SEQ2SEQ_GRAD_ACCUM_STEPS=2` by default, which keeps
+the effective batch size at 16 without requiring a 16-sample forward pass. If
+the run is stable and you want more input pipeline throughput, you can override
+the worker settings:
 
 ```bash
 MODEL_KEY=vit5 PIN_MEMORY=1 PERSISTENT_WORKERS=1 \
