@@ -88,6 +88,7 @@ def main() -> None:
     parser.add_argument("--max-input-length", type=int, default=1024)
     parser.add_argument("--max-target-length", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--no-pretokenize", action="store_true", help="Tokenize lazily in __getitem__ instead of caching tensors before training.")
     parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--patience", type=int, default=3)
@@ -97,7 +98,9 @@ def main() -> None:
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--dev-generate-batch-size", type=int, default=None)
-    parser.add_argument("--num-beams", type=int, default=4)
+    parser.add_argument("--dev-eval-limit", type=int, default=None, help="Limit dev examples used for ROUGE-L early stopping.")
+    parser.add_argument("--dev-num-beams", type=int, default=1, help="Beams for dev ROUGE-L early stopping generation.")
+    parser.add_argument("--num-beams", type=int, default=1)
     parser.add_argument("--src-lang", default=None, help="For mBART, e.g. vi_VN")
     parser.add_argument("--tgt-lang", default=None, help="For mBART, e.g. vi_VN")
     parser.add_argument("--device", default=None)
@@ -126,12 +129,19 @@ def main() -> None:
     class Seq2SeqDataset(Dataset):
         def __init__(self, rows: list[dict]) -> None:
             self.rows = rows
+            self.items = None
+            if not args.no_pretokenize:
+                self.items = []
+                total = len(rows)
+                for idx, row in enumerate(rows, start=1):
+                    self.items.append(self.encode_row(row))
+                    if idx == total or idx % 500 == 0:
+                        progress_bar("Tokenize seq2seq dataset", idx, total, idx)
 
         def __len__(self) -> int:
             return len(self.rows)
 
-        def __getitem__(self, idx: int) -> dict:
-            row = self.rows[idx]
+        def encode_row(self, row: dict) -> dict:
             source = make_input(row["question"], row["context"])
             encoded = tokenizer(
                 source,
@@ -152,6 +162,11 @@ def main() -> None:
             item["labels"] = labels
             return item
 
+        def __getitem__(self, idx: int) -> dict:
+            if self.items is not None:
+                return self.items[idx]
+            return self.encode_row(self.rows[idx])
+
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     use_amp = args.amp != "none" and device.startswith("cuda")
     amp_dtype = torch.bfloat16 if args.amp == "bf16" else torch.float16
@@ -168,10 +183,20 @@ def main() -> None:
         "pin_memory": device.startswith("cuda"),
         "persistent_workers": args.num_workers > 0,
     }
-    train_loader = DataLoader(Seq2SeqDataset(train_rows), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
-    dev_loader = DataLoader(Seq2SeqDataset(dev_rows), batch_size=args.batch_size, **loader_kwargs)
+    print("Building tokenized train dataset", flush=True)
+    train_dataset = Seq2SeqDataset(train_rows)
+    print("Building tokenized dev dataset", flush=True)
+    dev_dataset = Seq2SeqDataset(dev_rows)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    dev_loader = DataLoader(dev_dataset, batch_size=args.batch_size, **loader_kwargs)
     dev_gen_batch_size = args.dev_generate_batch_size or args.batch_size
-    dev_gen_loader = DataLoader(dev_rows, batch_size=dev_gen_batch_size, shuffle=False)
+    dev_gen_rows = dev_rows[: args.dev_eval_limit] if args.dev_eval_limit is not None else dev_rows
+    print(
+        f"Dev ROUGE-L early stopping uses {len(dev_gen_rows)}/{len(dev_rows)} dev examples "
+        f"with num_beams={args.dev_num_beams}",
+        flush=True,
+    )
+    dev_gen_loader = DataLoader(dev_gen_rows, batch_size=dev_gen_batch_size, shuffle=False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     update_steps_per_epoch = max(1, (len(train_loader) + args.grad_accum_steps - 1) // args.grad_accum_steps)
     total_steps = max(1, update_steps_per_epoch * args.epochs)
@@ -233,7 +258,7 @@ def main() -> None:
                 ).to(device)
                 generate_kwargs = {
                     "max_new_tokens": args.max_target_length,
-                    "num_beams": args.num_beams,
+                    "num_beams": args.dev_num_beams,
                 }
                 if forced_bos_token_id is not None:
                     generate_kwargs["forced_bos_token_id"] = forced_bos_token_id
