@@ -4,13 +4,28 @@
 from __future__ import annotations
 
 import argparse
+import builtins
 import json
+import os
+import sys
 from pathlib import Path
 
 from data_preprocessing.cpg_preprocess import progress_bar, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples, write_jsonl
 from data_preprocessing.qa_preprocess import normalize_space
 from train_hf_seq2seq import make_input
+
+
+def disable_apex_import() -> None:
+    sys.modules["apex"] = None
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "apex" or name.startswith("apex."):
+            raise ImportError("Apex import disabled by DISABLE_APEX=1")
+        return original_import(name, globals, locals, fromlist, level)
+
+    builtins.__import__ = guarded_import
 
 
 def main() -> None:
@@ -27,6 +42,8 @@ def main() -> None:
 
     try:
         import torch
+        if os.environ.get("DISABLE_APEX", "1") == "1":
+            disable_apex_import()
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
     except ImportError as exc:
         raise SystemExit("Pretrained seq2seq inference requires torch and transformers.") from exc

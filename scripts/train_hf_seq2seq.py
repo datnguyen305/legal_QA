@@ -8,7 +8,10 @@ AutoModelForSeq2SeqLM checkpoints.
 from __future__ import annotations
 
 import argparse
+import builtins
 import json
+import os
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -16,6 +19,25 @@ from data_preprocessing.cpg_preprocess import progress_bar, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import normalize_space
 from evaluate_predictions import rouge_l
+
+
+def disable_apex_import() -> None:
+    """Force Transformers to avoid an installed but ABI-broken Apex package.
+
+    Some notebook images ship an ``apex`` wheel whose fused CUDA extensions do
+    not match the active PyTorch build. T5/mT5 can then crash while constructing
+    layer norm. Raising ImportError for apex lets Transformers use the standard
+    PyTorch implementation instead.
+    """
+    sys.modules["apex"] = None
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "apex" or name.startswith("apex."):
+            raise ImportError("Apex import disabled by DISABLE_APEX=1")
+        return original_import(name, globals, locals, fromlist, level)
+
+    builtins.__import__ = guarded_import
 
 
 def make_input(question: str, context: str) -> str:
@@ -84,6 +106,8 @@ def main() -> None:
     try:
         import torch
         from torch.utils.data import DataLoader, Dataset
+        if os.environ.get("DISABLE_APEX", "1") == "1":
+            disable_apex_import()
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, get_linear_schedule_with_warmup
     except ImportError as exc:
         raise SystemExit("Pretrained seq2seq training requires torch and transformers.") from exc
