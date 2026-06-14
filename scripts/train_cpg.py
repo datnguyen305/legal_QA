@@ -9,7 +9,7 @@ from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
 
-from data_preprocessing.cpg_preprocess import load_cpg_records, sample_gold_context
+from data_preprocessing.cpg_preprocess import load_or_build_cpg_records, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import tokenize
 from evaluate_predictions import rouge_l
@@ -59,6 +59,9 @@ def main() -> None:
     parser.add_argument("--dev-data", default="dataset/dev_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", default="models/cpg")
+    parser.add_argument("--cache-dir", default="cache/cpg")
+    parser.add_argument("--no-disk-cache", action="store_true")
+    parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--dev-limit", type=int, default=None)
     parser.add_argument("--chunk-sizes", default="50,100,200,500")
@@ -90,23 +93,32 @@ def main() -> None:
     from model_architectures.cpg_model import CurriculumPointerGenerator
 
     chunk_sizes = [int(x) for x in args.chunk_sizes.split(",") if x.strip()]
-    train_records = load_cpg_records(
+    use_cache = not args.no_disk_cache
+    train_records = load_or_build_cpg_records(
         args.train_data,
         args.context_dir,
         args.train_limit,
         chunk_sizes,
         args.max_context_tokens,
         args.easy_ratio,
+        seed=23,
         progress_label="initial train",
+        cache_dir=args.cache_dir,
+        use_cache=use_cache,
+        rebuild_cache=args.rebuild_cache,
     )
-    dev_records = load_cpg_records(
+    dev_records = load_or_build_cpg_records(
         args.dev_data,
         args.context_dir,
         args.dev_limit,
         chunk_sizes,
         args.max_context_tokens,
         0.5,
+        seed=23,
         progress_label="dev",
+        cache_dir=args.cache_dir,
+        use_cache=use_cache,
+        rebuild_cache=args.rebuild_cache,
     )
     if not train_records or not dev_records:
         train_probe = load_examples(args.train_data, 1)
@@ -164,7 +176,7 @@ def main() -> None:
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         easy_ratio = max(0.0, args.easy_ratio - (epoch - 1) * args.easy_ratio_decay)
-        epoch_records = load_cpg_records(
+        epoch_records = load_or_build_cpg_records(
             args.train_data,
             args.context_dir,
             args.train_limit,
@@ -173,6 +185,9 @@ def main() -> None:
             easy_ratio,
             seed=23 + epoch,
             progress_label=f"train epoch {epoch}",
+            cache_dir=args.cache_dir,
+            use_cache=use_cache,
+            rebuild_cache=args.rebuild_cache,
         )
         train_loader = DataLoader(CpgDataset(epoch_records), batch_size=args.batch_size, shuffle=True, **loader_kwargs)
         model.train()

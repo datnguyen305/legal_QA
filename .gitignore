@@ -4,3 +4,5 @@
 cache/
 models/
 outputs/
+__pycache__/
+*.pyc

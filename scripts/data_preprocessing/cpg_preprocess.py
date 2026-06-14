@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import random
 import sys
+from pathlib import Path
 from typing import Any
 
 from data_preprocessing.legalqa_data import context_text, load_examples
@@ -31,6 +34,45 @@ def progress_bar(label: str, current: int, total: int, kept: int, width: int = 3
     if current >= total:
         sys.stderr.write("\n")
     sys.stderr.flush()
+
+
+def file_fingerprint(path: str) -> dict[str, Any]:
+    stat = Path(path).stat()
+    return {
+        "path": str(Path(path).resolve()),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def cache_key(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:16]
+
+
+def cpg_cache_payload(
+    data_path: str,
+    context_dir: str,
+    limit: int | None,
+    chunk_sizes: list[int],
+    max_context_tokens: int,
+    easy_ratio: float,
+    seed: int,
+) -> dict[str, Any]:
+    return {
+        "kind": "cpg_records",
+        "data": file_fingerprint(data_path),
+        "context_dir": str(Path(context_dir).resolve()),
+        "limit": limit,
+        "chunk_sizes": chunk_sizes,
+        "max_context_tokens": max_context_tokens,
+        "easy_ratio": round(easy_ratio, 8),
+        "seed": seed,
+    }
+
+
+def cpg_cache_path(cache_dir: str, label: str, payload: dict[str, Any]) -> Path:
+    return Path(cache_dir) / f"{label}_{cache_key(payload)}.json"
 
 
 def sample_gold_context(example: dict[str, Any], context_dir: str) -> str:
@@ -143,4 +185,45 @@ def load_cpg_records(
             records.append(record)
         if progress_label and (idx == total or idx % 500 == 0):
             progress_bar(f"Preprocess CPG {progress_label}", idx, total, len(records))
+    return records
+
+
+def load_or_build_cpg_records(
+    data_path: str,
+    context_dir: str,
+    limit: int | None,
+    chunk_sizes: list[int],
+    max_context_tokens: int,
+    easy_ratio: float,
+    seed: int = 23,
+    progress_label: str | None = None,
+    cache_dir: str = "cache/cpg",
+    use_cache: bool = True,
+    rebuild_cache: bool = False,
+) -> list[dict[str, Any]]:
+    label = (progress_label or "records").replace(" ", "_")
+    payload = cpg_cache_payload(data_path, context_dir, limit, chunk_sizes, max_context_tokens, easy_ratio, seed)
+    path = cpg_cache_path(cache_dir, label, payload)
+    if use_cache and path.exists() and not rebuild_cache:
+        print(f"Loading cached CPG records from {path}", file=sys.stderr, flush=True)
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    records = load_cpg_records(
+        data_path,
+        context_dir,
+        limit,
+        chunk_sizes,
+        max_context_tokens,
+        easy_ratio,
+        seed=seed,
+        progress_label=progress_label,
+    )
+    if use_cache:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False)
+        tmp_path.replace(path)
+        print(f"Saved cached CPG records to {path}", file=sys.stderr, flush=True)
     return records

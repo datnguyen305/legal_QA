@@ -44,6 +44,12 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
 
 Run one model at a time:
 
+Precompute CPG records before training:
+
+```bash
+CPG_EPOCHS=20 scripts/pipelines/preprocess_cpg.sh
+```
+
 ```bash
 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_cpg.sh

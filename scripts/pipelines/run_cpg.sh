@@ -20,9 +20,13 @@ BERTSCORE_DEVICE=${BERTSCORE_DEVICE:-$DEVICE}
 MODEL_DIR=${MODEL_DIR:-models/cpg}
 PREDICTIONS=${PREDICTIONS:-outputs/cpg_predictions.jsonl}
 METRICS=${METRICS:-outputs/cpg_metrics.json}
+CPG_CACHE_DIR=${CPG_CACHE_DIR:-cache/cpg}
+CPG_DISK_CACHE=${CPG_DISK_CACHE:-1}
+CPG_REBUILD_CACHE=${CPG_REBUILD_CACHE:-0}
 CPG_BATCH_SIZE=${CPG_BATCH_SIZE:-16}
 CPG_EPOCHS=${CPG_EPOCHS:-20}
 CPG_PATIENCE=${CPG_PATIENCE:-3}
+CPG_CHUNK_SIZES=${CPG_CHUNK_SIZES:-50,100,200,500}
 CPG_MAX_CONTEXT_TOKENS=${CPG_MAX_CONTEXT_TOKENS:-1200}
 CPG_MAX_ANSWER_TOKENS=${CPG_MAX_ANSWER_TOKENS:-96}
 
@@ -42,6 +46,14 @@ if [[ "$BERTSCORE" == "0" ]]; then
   bert_args=(--no-bertscore)
 fi
 
+cache_args=(--cache-dir "$CPG_CACHE_DIR")
+if [[ "$CPG_DISK_CACHE" == "0" ]]; then
+  cache_args+=(--no-disk-cache)
+fi
+if [[ "$CPG_REBUILD_CACHE" == "1" ]]; then
+  cache_args+=(--rebuild-cache)
+fi
+
 python3 scripts/train_cpg.py \
   --train-data "$TRAIN_DATA" \
   --dev-data "$DEV_DATA" \
@@ -53,8 +65,10 @@ python3 scripts/train_cpg.py \
   --batch-size "$CPG_BATCH_SIZE" \
   --epochs "$CPG_EPOCHS" \
   --patience "$CPG_PATIENCE" \
+  --chunk-sizes "$CPG_CHUNK_SIZES" \
   --max-context-tokens "$CPG_MAX_CONTEXT_TOKENS" \
   --max-answer-tokens "$CPG_MAX_ANSWER_TOKENS" \
+  "${cache_args[@]}" \
   $(limit_args train-limit "$TRAIN_LIMIT") \
   $(limit_args dev-limit "$DEV_LIMIT")
 
