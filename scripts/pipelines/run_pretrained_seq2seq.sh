@@ -26,6 +26,9 @@ MODEL_NAME=${MODEL_NAME:-}
 MODEL_DIR=${MODEL_DIR:-}
 PREDICTIONS=${PREDICTIONS:-}
 METRICS=${METRICS:-}
+SEQ2SEQ_CACHE_DIR=${SEQ2SEQ_CACHE_DIR:-cache/seq2seq}
+SEQ2SEQ_DISK_CACHE=${SEQ2SEQ_DISK_CACHE:-1}
+SEQ2SEQ_REBUILD_CACHE=${SEQ2SEQ_REBUILD_CACHE:-0}
 
 SEQ2SEQ_BATCH_SIZE=${SEQ2SEQ_BATCH_SIZE:-8}
 SEQ2SEQ_GRAD_ACCUM_STEPS=${SEQ2SEQ_GRAD_ACCUM_STEPS:-2}
@@ -104,6 +107,14 @@ if [[ -n "$SEQ2SEQ_DEV_GENERATE_BATCH_SIZE" ]]; then
   dev_gen_args+=(--dev-generate-batch-size "$SEQ2SEQ_DEV_GENERATE_BATCH_SIZE")
 fi
 
+cache_args=(--cache-dir "$SEQ2SEQ_CACHE_DIR")
+if [[ "$SEQ2SEQ_DISK_CACHE" == "0" ]]; then
+  cache_args+=(--no-disk-cache)
+fi
+if [[ "$SEQ2SEQ_REBUILD_CACHE" == "1" ]]; then
+  cache_args+=(--rebuild-cache)
+fi
+
 bert_args=(--bertscore-model "$BERTSCORE_MODEL" --bertscore-batch-size "$BERTSCORE_BATCH_SIZE")
 if [[ -n "$BERTSCORE_DEVICE" ]]; then
   bert_args+=(--bertscore-device "$BERTSCORE_DEVICE")
@@ -136,6 +147,7 @@ python3 scripts/train_hf_seq2seq.py \
   --dev-eval-limit "$SEQ2SEQ_DEV_EVAL_LIMIT" \
   "${lang_args[@]}" \
   "${dev_gen_args[@]}" \
+  "${cache_args[@]}" \
   $(limit_args train-limit "$TRAIN_LIMIT") \
   $(limit_args dev-limit "$DEV_LIMIT")
 

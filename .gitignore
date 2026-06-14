@@ -1,3 +1,6 @@
 *dataset/
 *.agents/
 *.codex/
+cache/
+models/
+outputs/

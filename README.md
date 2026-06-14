@@ -116,6 +116,23 @@ MODEL_KEY=vit5 PIN_MEMORY=1 PERSISTENT_WORKERS=1 \
   scripts/pipelines/run_pretrained_seq2seq.sh
 ```
 
+The pretrained pipeline writes reusable processed-row and tokenized-tensor
+caches under `cache/seq2seq` by default. Later runs with the same dataset,
+model/tokenizer, language settings, and max lengths load those cache files
+instead of preprocessing and tokenizing again. To force a rebuild:
+
+```bash
+MODEL_KEY=vit5 SEQ2SEQ_REBUILD_CACHE=1 \
+  scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
+To disable disk cache:
+
+```bash
+MODEL_KEY=vit5 SEQ2SEQ_DISK_CACHE=0 \
+  scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
 Default model IDs:
 
 - `vit5`: `VietAI/vit5-base`

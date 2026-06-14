@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import builtins
+import hashlib
 import json
 import os
 import sys
@@ -44,6 +45,34 @@ def make_input(question: str, context: str) -> str:
     return f"Câu hỏi: {question}\nVăn bản pháp luật liên quan:\n{context}\nTrả lời:"
 
 
+def file_fingerprint(path: str) -> dict:
+    stat = Path(path).stat()
+    return {
+        "path": str(Path(path).resolve()),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def cache_key(payload: dict) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:16]
+
+
+def cache_path(cache_dir: str, prefix: str, payload: dict, suffix: str) -> Path:
+    return Path(cache_dir) / f"{prefix}_{cache_key(payload)}.{suffix}"
+
+
+def rows_cache_payload(path: str, context_dir: str, limit: int | None, max_context_chars: int) -> dict:
+    return {
+        "kind": "seq2seq_rows",
+        "data": file_fingerprint(path),
+        "context_dir": str(Path(context_dir).resolve()),
+        "limit": limit,
+        "max_context_chars": max_context_chars,
+    }
+
+
 def build_rows(path: str, context_dir: str, limit: int | None, max_context_chars: int, progress_label: str | None = None) -> list[dict]:
     rows = []
     examples = load_examples(path, limit)
@@ -58,6 +87,33 @@ def build_rows(path: str, context_dir: str, limit: int | None, max_context_chars
             rows.append({"id": ex.get("id"), "question": question, "context": context, "answer": answer})
         if progress_label and (idx == total or idx % 500 == 0):
             progress_bar(f"Preprocess seq2seq {progress_label}", idx, total, len(rows))
+    return rows
+
+
+def load_or_build_rows(
+    path: str,
+    context_dir: str,
+    limit: int | None,
+    max_context_chars: int,
+    progress_label: str,
+    cache_dir: str,
+    use_cache: bool,
+    rebuild_cache: bool,
+) -> list[dict]:
+    payload = rows_cache_payload(path, context_dir, limit, max_context_chars)
+    path_out = cache_path(cache_dir, f"{progress_label}_rows", payload, "json")
+    if use_cache and path_out.exists() and not rebuild_cache:
+        print(f"Loading cached seq2seq {progress_label} rows from {path_out}", flush=True)
+        with path_out.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    rows = build_rows(path, context_dir, limit, max_context_chars, progress_label=progress_label)
+    if use_cache:
+        path_out.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path_out.with_suffix(path_out.suffix + ".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False)
+        tmp_path.replace(path_out)
+        print(f"Saved cached seq2seq {progress_label} rows to {path_out}", flush=True)
     return rows
 
 
@@ -82,6 +138,9 @@ def main() -> None:
     parser.add_argument("--dev-data", default="dataset/dev_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--cache-dir", default="cache/seq2seq")
+    parser.add_argument("--no-disk-cache", action="store_true", help="Disable processed row and tokenized tensor disk cache.")
+    parser.add_argument("--rebuild-cache", action="store_true", help="Ignore existing seq2seq cache files and rebuild them.")
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--dev-limit", type=int, default=None)
     parser.add_argument("--max-context-chars", type=int, default=12000)
@@ -118,8 +177,27 @@ def main() -> None:
     except ImportError as exc:
         raise SystemExit("Pretrained seq2seq training requires torch and transformers.") from exc
 
-    train_rows = build_rows(args.train_data, args.context_dir, args.train_limit, args.max_context_chars, progress_label="train")
-    dev_rows = build_rows(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars, progress_label="dev")
+    use_disk_cache = not args.no_disk_cache
+    train_rows = load_or_build_rows(
+        args.train_data,
+        args.context_dir,
+        args.train_limit,
+        args.max_context_chars,
+        "train",
+        args.cache_dir,
+        use_disk_cache,
+        args.rebuild_cache,
+    )
+    dev_rows = load_or_build_rows(
+        args.dev_data,
+        args.context_dir,
+        args.dev_limit,
+        args.max_context_chars,
+        "dev",
+        args.cache_dir,
+        use_disk_cache,
+        args.rebuild_cache,
+    )
     if not train_rows or not dev_rows:
         raise SystemExit("No seq2seq rows were created.")
 
@@ -134,16 +212,38 @@ def main() -> None:
         model.config.pad_token_id = tokenizer.pad_token_id
 
     class Seq2SeqDataset(Dataset):
-        def __init__(self, rows: list[dict]) -> None:
+        def __init__(self, rows: list[dict], split: str, rows_cache_payload: dict) -> None:
             self.rows = rows
             self.items = None
             if not args.no_pretokenize:
-                self.items = []
-                total = len(rows)
-                for idx, row in enumerate(rows, start=1):
-                    self.items.append(self.encode_row(row))
-                    if idx == total or idx % 500 == 0:
-                        progress_bar("Tokenize seq2seq dataset", idx, total, idx)
+                token_payload = {
+                    "kind": "seq2seq_tokens",
+                    "rows": rows_cache_payload,
+                    "model_name": args.model_name,
+                    "src_lang": args.src_lang,
+                    "tgt_lang": args.tgt_lang,
+                    "max_input_length": args.max_input_length,
+                    "max_target_length": args.max_target_length,
+                    "tokenizer_class": tokenizer.__class__.__name__,
+                    "pad_token_id": tokenizer.pad_token_id,
+                }
+                token_path = cache_path(args.cache_dir, f"{split}_tokens", token_payload, "pt")
+                if use_disk_cache and token_path.exists() and not args.rebuild_cache:
+                    print(f"Loading cached tokenized {split} dataset from {token_path}", flush=True)
+                    self.items = torch.load(token_path, map_location="cpu")
+                else:
+                    self.items = []
+                    total = len(rows)
+                    for idx, row in enumerate(rows, start=1):
+                        self.items.append(self.encode_row(row))
+                        if idx == total or idx % 500 == 0:
+                            progress_bar(f"Tokenize seq2seq {split} dataset", idx, total, idx)
+                    if use_disk_cache:
+                        token_path.parent.mkdir(parents=True, exist_ok=True)
+                        tmp_path = token_path.with_suffix(token_path.suffix + ".tmp")
+                        torch.save(self.items, tmp_path)
+                        tmp_path.replace(token_path)
+                        print(f"Saved cached tokenized {split} dataset to {token_path}", flush=True)
 
         def __len__(self) -> int:
             return len(self.rows)
@@ -191,9 +291,17 @@ def main() -> None:
         "persistent_workers": args.num_workers > 0 and bool(args.persistent_workers),
     }
     print("Building tokenized train dataset", flush=True)
-    train_dataset = Seq2SeqDataset(train_rows)
+    train_dataset = Seq2SeqDataset(
+        train_rows,
+        "train",
+        rows_cache_payload(args.train_data, args.context_dir, args.train_limit, args.max_context_chars),
+    )
     print("Building tokenized dev dataset", flush=True)
-    dev_dataset = Seq2SeqDataset(dev_rows)
+    dev_dataset = Seq2SeqDataset(
+        dev_rows,
+        "dev",
+        rows_cache_payload(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars),
+    )
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **loader_kwargs)
     dev_loader = DataLoader(dev_dataset, batch_size=args.batch_size, **loader_kwargs)
     dev_gen_batch_size = args.dev_generate_batch_size or args.batch_size
