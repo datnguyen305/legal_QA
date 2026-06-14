@@ -90,6 +90,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--no-pretokenize", action="store_true", help="Tokenize lazily in __getitem__ instead of caching tensors before training.")
     parser.add_argument("--grad-accum-steps", type=int, default=1)
+    parser.add_argument("--gradient-checkpointing", type=int, choices=(0, 1), default=0)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--patience", type=int, default=3)
     parser.add_argument("--lr", type=float, default=3e-5)
@@ -125,6 +126,10 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=False)
     forced_bos_token_id = configure_tokenizer(tokenizer, args.model_name, args.src_lang, args.tgt_lang)
     model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
+    if args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+        if hasattr(model.config, "use_cache"):
+            model.config.use_cache = False
     if tokenizer.pad_token_id is not None and model.config.pad_token_id is None:
         model.config.pad_token_id = tokenizer.pad_token_id
 
