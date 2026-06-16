@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
@@ -17,6 +18,19 @@ from train_cpg import SPECIALS, encode
 
 
 MODEL_CHOICES = ("qanet", "cross_passage", "deep_cascade", "td_san")
+
+
+def batch_progress_bar(label: str, current: int, total: int, loss: float | None = None, width: int = 30) -> None:
+    total = max(1, total)
+    current = min(current, total)
+    filled = int(width * current / total)
+    bar = "#" * filled + "-" * (width - filled)
+    percent = 100 * current / total
+    suffix = f" loss={loss:.4f}" if loss is not None else ""
+    sys.stderr.write(f"\r{label}: [{bar}] {current}/{total} ({percent:5.1f}%){suffix}")
+    if current >= total:
+        sys.stderr.write("\n")
+    sys.stderr.flush()
 
 
 def build_vocab(records: list[dict], min_freq: int) -> dict[str, int]:
@@ -301,14 +315,13 @@ def main() -> None:
                 optimizer.step()
             optimizer.zero_grad()
             total += float(loss.detach().float().cpu())
-            if step % 100 == 0:
-                print(f"epoch={epoch} step={step}/{len(train_loader)} loss={total / step:.4f}")
+            batch_progress_bar(f"Train {args.model} epoch {epoch}", step, len(train_loader), total / step)
         model.eval()
         dev_loss = 0.0
         predictions: list[str] = []
         references: list[str] = []
         with torch.no_grad():
-            for batch in dev_loader:
+            for step, batch in enumerate(dev_loader, start=1):
                 idxs = batch.pop("row_index").tolist()
                 batch_rows = [dev_rows[i] for i in idxs]
                 batch = {k: v.to(device) for k, v in batch.items()}
@@ -322,6 +335,7 @@ def main() -> None:
                 dev_loss += float(out.loss.detach().float().cpu())
                 predictions.extend(decode_spans(out.start_logits, out.end_logits, batch_rows))
                 references.extend(row["answer"] for row in batch_rows)
+                batch_progress_bar(f"Dev {args.model} epoch {epoch}", step, len(dev_loader), dev_loss / step)
         dev_loss /= max(1, len(dev_loader))
         dev_rouge_l = sum(rouge_l(pred, ref) for pred, ref in zip(predictions, references)) / max(1, len(predictions))
         print(f"epoch={epoch} train_loss={total / max(1, len(train_loader)):.4f} dev_loss={dev_loss:.4f} dev_rouge_l={dev_rouge_l:.4f}")
