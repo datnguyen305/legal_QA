@@ -10,7 +10,7 @@ from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
 
-from data_preprocessing.cpg_preprocess import progress_bar, sample_gold_context
+from data_preprocessing.cpg_preprocess import cache_key, file_fingerprint, progress_bar, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples
 from data_preprocessing.qa_preprocess import TOKEN_RE, make_extractive_record, normalize_space, tokenize
 from evaluate_predictions import rouge_l
@@ -101,6 +101,30 @@ def split_passages(tokens: list[str], max_passages: int, passage_len: int) -> li
     return passages[:max_passages] or [[]]
 
 
+def extractive_cache_payload(
+    data_path: str,
+    context_dir: str,
+    limit: int | None,
+    max_context_chars: int,
+    max_passages: int,
+    passage_len: int,
+) -> dict:
+    return {
+        "kind": "extractive_records",
+        "version": 2,
+        "data": file_fingerprint(data_path),
+        "context_dir": str(Path(context_dir).resolve()),
+        "limit": limit,
+        "max_context_chars": max_context_chars,
+        "max_passages": max_passages,
+        "passage_len": passage_len,
+    }
+
+
+def extractive_cache_path(cache_dir: str, label: str, payload: dict) -> Path:
+    return Path(cache_dir) / f"{label}_{cache_key(payload)}.json"
+
+
 def build_records(
     path: str,
     context_dir: str,
@@ -148,6 +172,37 @@ def build_records(
         if progress_label and (idx == len(examples) or idx % 500 == 0):
             progress_bar(f"Preprocess extractive {progress_label}", idx, len(examples), len(rows))
     return rows
+
+
+def load_or_build_records(
+    path: str,
+    context_dir: str,
+    limit: int | None,
+    max_context_chars: int,
+    max_passages: int,
+    passage_len: int,
+    progress_label: str | None = None,
+    cache_dir: str = "cache/extractive",
+    use_cache: bool = True,
+    rebuild_cache: bool = False,
+) -> list[dict]:
+    label = (progress_label or "records").replace(" ", "_")
+    payload = extractive_cache_payload(path, context_dir, limit, max_context_chars, max_passages, passage_len)
+    cache_path = extractive_cache_path(cache_dir, label, payload)
+    if use_cache and cache_path.exists() and not rebuild_cache:
+        print(f"Loading cached extractive records from {cache_path}", file=sys.stderr, flush=True)
+        with cache_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    records = build_records(path, context_dir, limit, max_context_chars, max_passages, passage_len, progress_label)
+    if use_cache:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False)
+        tmp_path.replace(cache_path)
+        print(f"Saved cached extractive records to {cache_path}", file=sys.stderr, flush=True)
+    return records
 
 
 def make_model(name: str, config: dict, vocab: dict, device: str):
@@ -199,6 +254,9 @@ def main() -> None:
     parser.add_argument("--dev-data", default="dataset/dev_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--cache-dir", default="cache/extractive")
+    parser.add_argument("--no-disk-cache", action="store_true")
+    parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--dev-limit", type=int, default=None)
     parser.add_argument("--max-context-chars", type=int, default=12000)
@@ -227,8 +285,31 @@ def main() -> None:
     except ImportError as exc:
         raise SystemExit("Extractive training requires PyTorch.") from exc
 
-    train_rows = build_records(args.train_data, args.context_dir, args.train_limit, args.max_context_chars, args.max_passages, args.passage_len, "train")
-    dev_rows = build_records(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars, args.max_passages, args.passage_len, "dev")
+    use_cache = not args.no_disk_cache
+    train_rows = load_or_build_records(
+        args.train_data,
+        args.context_dir,
+        args.train_limit,
+        args.max_context_chars,
+        args.max_passages,
+        args.passage_len,
+        "train",
+        args.cache_dir,
+        use_cache,
+        args.rebuild_cache,
+    )
+    dev_rows = load_or_build_records(
+        args.dev_data,
+        args.context_dir,
+        args.dev_limit,
+        args.max_context_chars,
+        args.max_passages,
+        args.passage_len,
+        "dev",
+        args.cache_dir,
+        use_cache,
+        args.rebuild_cache,
+    )
     if not train_rows or not dev_rows:
         raise SystemExit("No extractive records were created. These models require the gold answer text to appear in the selected context.")
     vocab = build_vocab(train_rows + dev_rows, args.min_freq)

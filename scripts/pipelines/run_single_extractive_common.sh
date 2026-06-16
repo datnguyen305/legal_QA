@@ -20,6 +20,9 @@ EXTRACTIVE_PATIENCE=${EXTRACTIVE_PATIENCE:-3}
 EXTRACTIVE_MAX_PASSAGES=${EXTRACTIVE_MAX_PASSAGES:-6}
 EXTRACTIVE_PASSAGE_LEN=${EXTRACTIVE_PASSAGE_LEN:-256}
 EXTRACTIVE_TOP_K=${EXTRACTIVE_TOP_K:-64}
+EXTRACTIVE_CACHE_DIR=${EXTRACTIVE_CACHE_DIR:-cache/extractive}
+EXTRACTIVE_DISK_CACHE=${EXTRACTIVE_DISK_CACHE:-1}
+EXTRACTIVE_REBUILD_CACHE=${EXTRACTIVE_REBUILD_CACHE:-0}
 
 limit_args() {
   local name=$1
@@ -37,6 +40,14 @@ if [[ "$BERTSCORE" == "0" ]]; then
   bert_args=(--no-bertscore)
 fi
 
+cache_args=(--cache-dir "$EXTRACTIVE_CACHE_DIR")
+if [[ "$EXTRACTIVE_DISK_CACHE" == "0" ]]; then
+  cache_args+=(--no-disk-cache)
+fi
+if [[ "$EXTRACTIVE_REBUILD_CACHE" == "1" ]]; then
+  cache_args+=(--rebuild-cache)
+fi
+
 python3 "$TRAIN_SCRIPT" \
   --train-data "$TRAIN_DATA" \
   --dev-data "$DEV_DATA" \
@@ -51,6 +62,7 @@ python3 "$TRAIN_SCRIPT" \
   --max-passages "$EXTRACTIVE_MAX_PASSAGES" \
   --passage-len "$EXTRACTIVE_PASSAGE_LEN" \
   --top-k "$EXTRACTIVE_TOP_K" \
+  "${cache_args[@]}" \
   $(limit_args train-limit "$TRAIN_LIMIT") \
   $(limit_args dev-limit "$DEV_LIMIT")
 

@@ -101,6 +101,36 @@ The generic wrapper is also available:
 MODEL=qanet scripts/pipelines/run_extractive.sh
 ```
 
+Extractive preprocessing caches records under `cache/extractive` by default, so
+later QANet, Cross-Passage, Deep Cascade, and TD-SAN runs with the same data,
+limits, context window, and passage settings can skip rebuilding records. To
+build only the cache before training:
+
+```bash
+scripts/pipelines/preprocess_extractive.sh
+```
+
+Use the same `EXTRACTIVE_MAX_PASSAGES`, `EXTRACTIVE_PASSAGE_LEN`, train/dev
+limits, and cache directory when training later, otherwise a different cache key
+will be used. To
+force a rebuild:
+
+```bash
+EXTRACTIVE_REBUILD_CACHE=1 scripts/pipelines/run_qanet.sh
+```
+
+To disable the cache:
+
+```bash
+EXTRACTIVE_DISK_CACHE=0 scripts/pipelines/run_qanet.sh
+```
+
+To use another cache directory:
+
+```bash
+EXTRACTIVE_CACHE_DIR=/tmp/legalqa_extractive_cache scripts/pipelines/run_qanet.sh
+```
+
 Smoke test a pretrained seq2seq model:
 
 ```bash
