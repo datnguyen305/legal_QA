@@ -11,7 +11,7 @@ from pathlib import Path
 
 from data_preprocessing.cpg_preprocess import progress_bar, sample_gold_context
 from data_preprocessing.legalqa_data import load_examples
-from data_preprocessing.qa_preprocess import normalize_space, tokenize
+from data_preprocessing.qa_preprocess import TOKEN_RE, make_extractive_record, normalize_space, tokenize
 from evaluate_predictions import rouge_l
 from train_cpg import SPECIALS, encode
 
@@ -41,6 +41,47 @@ def find_subsequence(tokens: list[str], needle: list[str]) -> tuple[int, int] | 
     return None
 
 
+def token_span_from_chars(text: str, start: int, end: int) -> tuple[int, int] | None:
+    token_indexes = []
+    for idx, match in enumerate(TOKEN_RE.finditer((text or "").lower())):
+        if match.end() > start and match.start() < end:
+            token_indexes.append(idx)
+    if not token_indexes:
+        return None
+    return token_indexes[0], token_indexes[-1]
+
+
+def best_overlap_span(context_tokens: list[str], answer_tokens: list[str]) -> tuple[int, int] | None:
+    """Weak span label for abstractive references that do not exactly occur."""
+    content = [tok for tok in answer_tokens if len(tok) > 1]
+    answer_set = set(content or answer_tokens)
+    if not context_tokens or not answer_set:
+        return None
+    max_len = min(len(context_tokens), max(8, min(len(answer_tokens), 160)))
+    best_start = 0
+    best_end = min(len(context_tokens), max_len) - 1
+    best_score = -1.0
+    for start in range(len(context_tokens)):
+        counts: dict[str, int] = {}
+        overlap = 0
+        stop = min(len(context_tokens), start + max_len)
+        for end in range(start, stop):
+            tok = context_tokens[end]
+            if tok in answer_set:
+                counts[tok] = counts.get(tok, 0) + 1
+                if counts[tok] == 1:
+                    overlap += 1
+            length = end - start + 1
+            score = overlap / max(1, len(answer_set)) + overlap / max(1, length)
+            if score > best_score:
+                best_score = score
+                best_start = start
+                best_end = end
+    if best_score <= 0:
+        return None
+    return best_start, best_end
+
+
 def split_passages(tokens: list[str], max_passages: int, passage_len: int) -> list[list[str]]:
     passages = [tokens[i : i + passage_len] for i in range(0, len(tokens), passage_len)]
     return passages[:max_passages] or [[]]
@@ -60,12 +101,21 @@ def build_records(
     if progress_label:
         print(f"Loading extractive records for {progress_label}: {len(examples)} examples", flush=True)
     for idx, ex in enumerate(examples, start=1):
+        record = make_extractive_record(ex, context_dir, max_context_chars)
         question = normalize_space(ex.get("question", ""))
         answer = normalize_space(ex.get("answer", ""))
-        context = sample_gold_context(ex, context_dir)[:max_context_chars]
+        context = record["context"] if record is not None else sample_gold_context(ex, context_dir)[:max_context_chars]
         context_tokens = tokenize(context)
-        answer_tokens = tokenize(answer)
-        span = find_subsequence(context_tokens, answer_tokens)
+        answer_tokens = tokenize(record["answer"] if record is not None else answer)
+        span = (
+            token_span_from_chars(context, record["answer_start"], record["answer_end"])
+            if record is not None
+            else find_subsequence(context_tokens, answer_tokens)
+        )
+        if span is None:
+            span = find_subsequence(context_tokens, answer_tokens)
+        if span is None:
+            span = best_overlap_span(context_tokens, tokenize(answer))
         if question and answer and span is not None:
             passages = split_passages(context_tokens, max_passages, passage_len)
             start, end = span
