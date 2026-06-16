@@ -1,0 +1,17 @@
+{
+  "model": "deep_cascade",
+  "type": "extractive_multi_document",
+  "hidden": 128,
+  "dropout": 0.1,
+  "max_passages": 6,
+  "passage_len": 256,
+  "max_question_tokens": 64,
+  "paper_components": [
+    "question_document_coattention",
+    "gated_fusion",
+    "self_alignment",
+    "document_extraction_auxiliary_loss",
+    "paragraph_extraction_auxiliary_loss",
+    "answer_span_extraction"
+  ]
+}

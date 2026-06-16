@@ -1,10 +1,14 @@
 # Legal QA Proposed Methods
 
-This workspace contains runnable implementations for three proposed QA methods:
+This workspace contains runnable implementations for seven proposed QA methods:
 
 - **CPG**: curriculum pointer-generator with an Introspective Alignment Layer.
 - **S-NET**: evidence extraction followed by GRU seq2seq answer synthesis with evidence start/end feature embeddings, trained from scratch.
 - **LatentQA**: stochastic selector network that marginalizes answer tokens over vocabulary, question-copy, and context-copy sources.
+- **QANet**: feed-forward extractive reader with depthwise separable convolution, multi-head self-attention, trilinear context-query attention, shared model encoders, and span output.
+- **Cross-Passage**: multi-passage extractive reader with pointer-network boundaries, answer-content modeling, and cross-passage answer-candidate verification.
+- **Deep Cascade**: coarse-to-fine multi-document reader with auxiliary document and paragraph extraction heads plus answer span extraction.
+- **TD-SAN / DynSAN**: token-level dynamic self-attention reader with gated top-K token selection and cross-passage attention over concatenated passages.
 
 It also includes pretrained seq2seq fine-tuning pipelines for **ViT5**,
 **BARTpho**, **mT5**, and **mBART**.
@@ -63,6 +67,38 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
 ```bash
 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_latentqa.sh
+```
+
+Run one of the extractive paper models:
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_qanet.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_cross_passage.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_deep_cascade.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_td_san.sh
+```
+
+These extractive models train only on samples where the gold answer text can be
+matched inside the selected legal context, because their papers predict answer
+spans rather than synthesize free-form answers.
+
+The generic wrapper is also available:
+
+```bash
+MODEL=qanet scripts/pipelines/run_extractive.sh
 ```
 
 Smoke test a pretrained seq2seq model:
@@ -186,12 +222,20 @@ Metrics are written to:
 - `outputs/cpg_metrics.json`
 - `outputs/snet_metrics.json`
 - `outputs/latentqa_metrics.json`
+- `outputs/qanet_metrics.json`
+- `outputs/cross_passage_metrics.json`
+- `outputs/deep_cascade_metrics.json`
+- `outputs/td_san_metrics.json`
 
 Predictions are written to:
 
 - `outputs/cpg_predictions.jsonl`
 - `outputs/snet_predictions.jsonl`
 - `outputs/latentqa_predictions.jsonl`
+- `outputs/qanet_predictions.jsonl`
+- `outputs/cross_passage_predictions.jsonl`
+- `outputs/deep_cascade_predictions.jsonl`
+- `outputs/td_san_predictions.jsonl`
 
 Pretrained seq2seq outputs use the model key, for example:
 

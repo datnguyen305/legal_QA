@@ -1,0 +1,20 @@
+{
+  "model": "td_san",
+  "type": "extractive_multi_passage",
+  "hidden": 128,
+  "heads": 8,
+  "top_k": 64,
+  "cross_layers": 2,
+  "dropout": 0.1,
+  "max_passages": 6,
+  "passage_len": 256,
+  "max_question_tokens": 64,
+  "paper_components": [
+    "dynamic_self_attention",
+    "gated_top_k_token_selection",
+    "local_convolution_encoder",
+    "trilinear_alignment",
+    "rank_embeddings",
+    "token_level_cross_passage_attention"
+  ]
+}

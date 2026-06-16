@@ -2,7 +2,7 @@
 *.agents/
 *.codex/
 cache/
-models/
+/models/
 outputs/
 __pycache__/
 *.pyc
