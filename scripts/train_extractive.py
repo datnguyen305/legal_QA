@@ -111,7 +111,7 @@ def extractive_cache_payload(
 ) -> dict:
     return {
         "kind": "extractive_records",
-        "version": 2,
+        "version": 3,
         "data": file_fingerprint(data_path),
         "context_dir": str(Path(context_dir).resolve()),
         "limit": limit,
@@ -158,11 +158,14 @@ def build_records(
             passages = split_passages(context_tokens, max_passages, passage_len)
             start, end = span
             if end < max_passages * passage_len:
+                extractive_answer = " ".join(context_tokens[start : end + 1])
                 rows.append(
                     {
                         "id": ex.get("id"),
                         "question": question,
-                        "answer": answer,
+                        "answer": extractive_answer,
+                        "reference": extractive_answer,
+                        "abstractive_reference": answer,
                         "question_tokens": tokenize(question),
                         "passage_tokens": passages,
                         "start": start,

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from data_preprocessing.cpg_preprocess import sample_gold_context
 from data_preprocessing.legalqa_data import load_examples, write_jsonl
-from data_preprocessing.qa_preprocess import normalize_space, tokenize
+from data_preprocessing.qa_preprocess import make_extractive_record, normalize_space, tokenize
 from train_cpg import encode
 from train_extractive import MODEL_CHOICES, make_model, split_passages
 
@@ -44,7 +44,10 @@ def main() -> None:
     rows = []
     for ex in load_examples(args.data, args.limit):
         question = normalize_space(ex.get("question", ""))
-        context_tokens = tokenize(sample_gold_context(ex, args.context_dir)[: config["max_context_chars"]])
+        record = make_extractive_record(ex, args.context_dir, config["max_context_chars"])
+        context = record["context"] if record is not None else sample_gold_context(ex, args.context_dir)[: config["max_context_chars"]]
+        context_tokens = tokenize(context)
+        extractive_reference = record["answer"] if record is not None else ex.get("answer", "")
         passages = split_passages(context_tokens, config["max_passages"], config["passage_len"])
         while len(passages) < config["max_passages"]:
             passages.append([])
@@ -68,7 +71,8 @@ def main() -> None:
             {
                 "id": ex.get("id"),
                 "question": question,
-                "reference": ex.get("answer", ""),
+                "reference": extractive_reference,
+                "abstractive_reference": ex.get("answer", ""),
                 "prediction": " ".join(flat_tokens[start : end + 1]),
                 "model": model_name,
             }
