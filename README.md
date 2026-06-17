@@ -101,6 +101,18 @@ The generic wrapper is also available:
 MODEL=qanet scripts/pipelines/run_extractive.sh
 ```
 
+Run all extractive models in sequence:
+
+```bash
+scripts/pipelines/run_all_extractive.sh
+```
+
+To run a subset:
+
+```bash
+EXTRACTIVE_MODELS="qanet td_san" scripts/pipelines/run_all_extractive.sh
+```
+
 Extractive preprocessing caches records under `cache/extractive` by default, so
 later QANet, Cross-Passage, Deep Cascade, and TD-SAN runs with the same data,
 limits, context window, and passage settings can skip rebuilding records. To
