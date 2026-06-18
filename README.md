@@ -13,6 +13,10 @@ This workspace contains runnable implementations for seven proposed QA methods:
 It also includes pretrained seq2seq fine-tuning pipelines for **ViT5**,
 **BARTpho**, **mT5**, and **mBART**.
 
+Pretrained encoder extractive QA fine-tuning is available for **LEGAL-BERT**,
+**ViDeBERTa**, **mBERT**, **XLM-RoBERTa**, and **PhoBERT** through Hugging Face
+`AutoModelForQuestionAnswering`.
+
 The processed dataset files are expected at:
 
 - `dataset/train_data.json`
@@ -148,6 +152,23 @@ Smoke test a pretrained seq2seq model:
 ```bash
 MODEL_KEY=vit5 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_pretrained_seq2seq.sh
+```
+
+Smoke test a pretrained encoder extractive model:
+
+```bash
+MODEL_KEY=mbert TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_hf_extractive.sh
+```
+
+Supported `MODEL_KEY` values are `legal_bert`, `videberta`, `mbert`, `xlmr`,
+and `phobert`. You can override any checkpoint with `MODEL_NAME`.
+
+Run all pretrained encoder extractive models:
+
+```bash
+HF_EXTRACTIVE_MODELS="legal_bert videberta mbert xlmr phobert" BERTSCORE=0 \
+  scripts/pipelines/run_all_hf_extractive.sh
 ```
 
 ## Full Run
