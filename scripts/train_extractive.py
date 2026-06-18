@@ -360,6 +360,28 @@ def main() -> None:
             return torch.autocast(device_type="cuda", dtype=amp_dtype)
         return nullcontext()
 
+    def model_batch(batch: dict) -> dict:
+        batch = {k: v.to(device) for k, v in batch.items()}
+        if args.model == "qanet":
+            keep = {"context_ids", "question_ids", "start_positions", "end_positions"}
+        elif args.model == "cross_passage":
+            keep = {"passage_ids", "question_ids", "context_ids", "start_positions", "end_positions", "content_labels"}
+        elif args.model == "deep_cascade":
+            keep = {
+                "passage_ids",
+                "question_ids",
+                "context_ids",
+                "start_positions",
+                "end_positions",
+                "document_labels",
+                "paragraph_labels",
+            }
+        elif args.model == "td_san":
+            keep = {"passage_ids", "question_ids", "context_ids", "start_positions", "end_positions"}
+        else:
+            keep = set(batch)
+        return {key: value for key, value in batch.items() if key in keep}
+
     config = vars(args) | {"vocab_size": len(vocab)}
     model = make_model(args.model, config, vocab, device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -376,12 +398,7 @@ def main() -> None:
         for step, batch in enumerate(train_loader, start=1):
             row_index = batch.pop("row_index")
             del row_index
-            batch = {k: v.to(device) for k, v in batch.items()}
-            if args.model == "qanet":
-                batch.pop("passage_ids")
-                batch.pop("content_labels")
-                batch.pop("document_labels")
-                batch.pop("paragraph_labels")
+            batch = model_batch(batch)
             with autocast_context():
                 out = model(**batch)
                 loss = out.loss
@@ -408,12 +425,7 @@ def main() -> None:
             for step, batch in enumerate(dev_loader, start=1):
                 idxs = batch.pop("row_index").tolist()
                 batch_rows = [dev_rows[i] for i in idxs]
-                batch = {k: v.to(device) for k, v in batch.items()}
-                if args.model == "qanet":
-                    batch.pop("passage_ids")
-                    batch.pop("content_labels")
-                    batch.pop("document_labels")
-                    batch.pop("paragraph_labels")
+                batch = model_batch(batch)
                 with autocast_context():
                     out = model(**batch)
                 dev_loss += float(out.loss.detach().float().cpu())
