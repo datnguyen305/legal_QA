@@ -40,7 +40,7 @@ case "$MODEL_KEY" in
     DEFAULT_METRICS="outputs/legal_bert_metrics.json"
     ;;
   videberta)
-    DEFAULT_MODEL_NAME="FPTAI/ViDeBERTa-base"
+    DEFAULT_MODEL_NAME="Fsoft-AIC/videberta-base"
     DEFAULT_MODEL_DIR="models/videberta_extractive"
     DEFAULT_PREDICTIONS="outputs/videberta_predictions.jsonl"
     DEFAULT_METRICS="outputs/videberta_metrics.json"
