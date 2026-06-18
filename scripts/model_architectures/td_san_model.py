@@ -87,7 +87,7 @@ class DynamicSelfAttentionBlock(nn.Module):
             scores = scores.masked_fill(~selected_valid.unsqueeze(1), -1e4)
             ah = torch.bmm(torch.softmax(scores, dim=-1), vh)
             head_out = torch.zeros(bsz, seq_len, self.head_dim, dtype=x.dtype, device=x.device)
-            head_out.scatter_(1, top_idx.unsqueeze(-1).expand(-1, -1, self.head_dim), ah)
+            head_out.scatter_(1, top_idx.unsqueeze(-1).expand(-1, -1, self.head_dim), ah.to(head_out.dtype))
             attended[:, h] = head_out
         attended = attended.transpose(1, 2).reshape(bsz, seq_len, self.hidden)
         candidate = self.out(attended)
