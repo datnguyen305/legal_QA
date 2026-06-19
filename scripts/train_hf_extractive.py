@@ -14,6 +14,85 @@ from data_preprocessing.qa_preprocess import make_extractive_record
 from evaluate_predictions import rouge_l
 
 
+def find_subsequence_ids(tokens: list[int], needle: list[int]) -> int | None:
+    if not needle or len(needle) > len(tokens):
+        return None
+    for i in range(len(tokens) - len(needle) + 1):
+        if tokens[i : i + len(needle)] == needle:
+            return i
+    return None
+
+
+def pair_special_count(tokenizer, question_ids: list[int]) -> int:
+    probe = tokenizer.build_inputs_with_special_tokens(question_ids, [tokenizer.unk_token_id or 0])
+    return len(probe) - len(question_ids) - 1
+
+
+def slow_train_feature(row: dict, tokenizer, max_length: int, doc_stride: int) -> dict | None:
+    question_ids = tokenizer.encode(row["question"], add_special_tokens=False)[: min(128, max_length // 3)]
+    context_ids = tokenizer.encode(row["context"], add_special_tokens=False)
+    answer_ids = tokenizer.encode(row["answer"], add_special_tokens=False)
+    answer_start = find_subsequence_ids(context_ids, answer_ids)
+    if answer_start is None:
+        return None
+    answer_end = answer_start + len(answer_ids) - 1
+    max_context_len = max(1, max_length - len(question_ids) - pair_special_count(tokenizer, question_ids))
+    window_start = max(0, min(answer_start, answer_end - max_context_len + 1))
+    window_end = min(len(context_ids), window_start + max_context_len)
+    window_ids = context_ids[window_start:window_end]
+    input_ids = tokenizer.build_inputs_with_special_tokens(question_ids, window_ids)
+    context_offset = find_subsequence_ids(input_ids, window_ids)
+    if context_offset is None or answer_end >= window_end:
+        return None
+    token_type_ids = tokenizer.create_token_type_ids_from_sequences(question_ids, window_ids)
+    pad_len = max_length - len(input_ids)
+    if pad_len < 0:
+        return None
+    input_ids = input_ids + [tokenizer.pad_token_id] * pad_len
+    attention_mask = [1] * (max_length - pad_len) + [0] * pad_len
+    token_type_ids = token_type_ids + [0] * pad_len if token_type_ids else None
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "token_type_ids": token_type_ids,
+        "start_positions": context_offset + answer_start - window_start,
+        "end_positions": context_offset + answer_end - window_start,
+        "row_index": None,
+    }
+
+
+def slow_inference_features(row: dict, tokenizer, max_length: int, doc_stride: int) -> list[dict]:
+    question_ids = tokenizer.encode(row["question"], add_special_tokens=False)[: min(128, max_length // 3)]
+    context_ids = tokenizer.encode(row["context"], add_special_tokens=False)
+    max_context_len = max(1, max_length - len(question_ids) - pair_special_count(tokenizer, question_ids))
+    step = max(1, max_context_len - doc_stride)
+    features = []
+    for window_start in range(0, max(1, len(context_ids)), step):
+        window_ids = context_ids[window_start : window_start + max_context_len]
+        if not window_ids:
+            break
+        input_ids = tokenizer.build_inputs_with_special_tokens(question_ids, window_ids)
+        context_offset = find_subsequence_ids(input_ids, window_ids)
+        if context_offset is None:
+            continue
+        token_type_ids = tokenizer.create_token_type_ids_from_sequences(question_ids, window_ids)
+        pad_len = max_length - len(input_ids)
+        if pad_len < 0:
+            continue
+        features.append(
+            {
+                "input_ids": input_ids + [tokenizer.pad_token_id] * pad_len,
+                "attention_mask": [1] * (max_length - pad_len) + [0] * pad_len,
+                "token_type_ids": token_type_ids + [0] * pad_len if token_type_ids else None,
+                "context_offset": context_offset,
+                "window_ids": window_ids,
+            }
+        )
+        if window_start + max_context_len >= len(context_ids):
+            break
+    return features
+
+
 def build_records(path: str, context_dir: str, limit: int | None, max_context_chars: int, progress_label: str) -> list[dict]:
     examples = load_examples(path, limit)
     rows = []
@@ -32,6 +111,14 @@ def prepare_features(rows: list[dict], tokenizer, max_length: int, doc_stride: i
     features = []
     total = len(rows)
     for idx, row in enumerate(rows, start=1):
+        if not tokenizer.is_fast:
+            feature = slow_train_feature(row, tokenizer, max_length, doc_stride)
+            if feature is not None:
+                feature["row_index"] = idx - 1
+                features.append(feature)
+            if idx == total or idx % 500 == 0:
+                progress_bar(f"Tokenize HF extractive {progress_label}", idx, total, len(features))
+            continue
         tokenized = tokenizer(
             row["question"],
             row["context"],
@@ -83,6 +170,41 @@ def decode_best_span(row: dict, tokenizer, model, device, max_length: int, doc_s
         import torch
     except ImportError as exc:
         raise SystemExit("HF extractive inference requires PyTorch.") from exc
+
+    if not tokenizer.is_fast:
+        features = slow_inference_features(row, tokenizer, max_length, doc_stride)
+        if not features:
+            return ""
+        batch = {
+            "input_ids": torch.tensor([f["input_ids"] for f in features], dtype=torch.long, device=device),
+            "attention_mask": torch.tensor([f["attention_mask"] for f in features], dtype=torch.long, device=device),
+        }
+        if features[0]["token_type_ids"] is not None:
+            batch["token_type_ids"] = torch.tensor([f["token_type_ids"] for f in features], dtype=torch.long, device=device)
+        with torch.no_grad():
+            out = model(**batch)
+        best_score = None
+        best_text = ""
+        for feature_idx, feature in enumerate(features):
+            start_scores = out.start_logits[feature_idx]
+            end_scores = out.end_logits[feature_idx]
+            context_offset = feature["context_offset"]
+            window_ids = feature["window_ids"]
+            top_starts = torch.topk(start_scores, k=min(20, start_scores.numel())).indices.tolist()
+            top_ends = torch.topk(end_scores, k=min(20, end_scores.numel())).indices.tolist()
+            for start in top_starts:
+                for end in top_ends:
+                    local_start = start - context_offset
+                    local_end = end - context_offset
+                    if local_start < 0 or local_end < local_start or local_end >= len(window_ids):
+                        continue
+                    if local_end - local_start + 1 > max_answer_tokens:
+                        continue
+                    score = float(start_scores[start] + end_scores[end])
+                    if best_score is None or score > best_score:
+                        best_score = score
+                        best_text = tokenizer.decode(window_ids[local_start : local_end + 1], skip_special_tokens=True)
+        return best_text
 
     tokenized = tokenizer(
         row["question"],
@@ -159,7 +281,7 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
     if not tokenizer.is_fast:
-        raise SystemExit(f"{args.model_name} tokenizer must be fast to provide offset mappings.")
+        print(f"{args.model_name} tokenizer is slow; using token-span fallback without offset mappings.", flush=True)
     model = AutoModelForQuestionAnswering.from_pretrained(args.model_name)
     train_rows = build_records(args.train_data, args.context_dir, args.train_limit, args.max_context_chars, "train")
     dev_rows = build_records(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars, "dev")
