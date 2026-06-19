@@ -33,6 +33,8 @@ def main() -> None:
     config = json.load(open(Path(args.model_dir) / "hf_extractive_config.json", encoding="utf-8"))
     tokenizer = AutoTokenizer.from_pretrained(args.model_dir, use_fast=True)
     model = AutoModelForQuestionAnswering.from_pretrained(args.model_dir)
+    if len(tokenizer) > model.get_input_embeddings().num_embeddings:
+        model.resize_token_embeddings(len(tokenizer))
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()

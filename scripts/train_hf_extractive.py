@@ -179,7 +179,7 @@ def decode_best_span(row: dict, tokenizer, model, device, max_length: int, doc_s
             "input_ids": torch.tensor([f["input_ids"] for f in features], dtype=torch.long, device=device),
             "attention_mask": torch.tensor([f["attention_mask"] for f in features], dtype=torch.long, device=device),
         }
-        if features[0]["token_type_ids"] is not None:
+        if features[0]["token_type_ids"] is not None and getattr(model.config, "type_vocab_size", 0) > 1:
             batch["token_type_ids"] = torch.tensor([f["token_type_ids"] for f in features], dtype=torch.long, device=device)
         with torch.no_grad():
             out = model(**batch)
@@ -221,7 +221,7 @@ def decode_best_span(row: dict, tokenizer, model, device, max_length: int, doc_s
     if "overflow_to_sample_mapping" in tokenized:
         tokenized.pop("overflow_to_sample_mapping")
     tokenized = {k: v.to(device) for k, v in tokenized.items()}
-    if "token_type_ids" in tokenized and tokenized["token_type_ids"] is None:
+    if "token_type_ids" in tokenized and (tokenized["token_type_ids"] is None or getattr(model.config, "type_vocab_size", 0) <= 1):
         tokenized.pop("token_type_ids")
     with torch.no_grad():
         out = model(**tokenized)
@@ -283,10 +283,15 @@ def main() -> None:
     if not tokenizer.is_fast:
         print(f"{args.model_name} tokenizer is slow; using token-span fallback without offset mappings.", flush=True)
     model = AutoModelForQuestionAnswering.from_pretrained(args.model_name)
+    if len(tokenizer) > model.get_input_embeddings().num_embeddings:
+        model.resize_token_embeddings(len(tokenizer))
     train_rows = build_records(args.train_data, args.context_dir, args.train_limit, args.max_context_chars, "train")
     dev_rows = build_records(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars, "dev")
     train_features = prepare_features(train_rows, tokenizer, args.max_length, args.doc_stride, "train")
     dev_features = prepare_features(dev_rows, tokenizer, args.max_length, args.doc_stride, "dev")
+    if getattr(model.config, "type_vocab_size", 0) <= 1:
+        for feature in train_features + dev_features:
+            feature["token_type_ids"] = None
     if not train_features or not dev_features:
         raise SystemExit("No tokenized HF extractive features were created.")
 
