@@ -14,6 +14,42 @@ from data_preprocessing.qa_preprocess import make_extractive_record
 from evaluate_predictions import rouge_l
 
 
+def extend_position_capacity(model, tokenizer, max_length: int) -> None:
+    """Extend RoBERTa-style position embeddings/buffers for longer inputs."""
+    try:
+        import torch
+        import torch.nn as nn
+    except ImportError:
+        return
+
+    base = getattr(model, "roberta", None)
+    embeddings = getattr(base, "embeddings", None)
+    position_embeddings = getattr(embeddings, "position_embeddings", None)
+    if embeddings is None or position_embeddings is None:
+        return
+
+    padding_idx = position_embeddings.padding_idx
+    if padding_idx is None:
+        padding_idx = tokenizer.pad_token_id or 0
+    required_positions = max_length + padding_idx + 1
+    if required_positions <= position_embeddings.num_embeddings:
+        return
+
+    old_weight = position_embeddings.weight.data
+    new_embeddings = nn.Embedding(
+        required_positions,
+        position_embeddings.embedding_dim,
+        padding_idx=position_embeddings.padding_idx,
+    ).to(device=old_weight.device, dtype=old_weight.dtype)
+    new_embeddings.weight.data[: old_weight.size(0)] = old_weight
+    new_embeddings.weight.data[old_weight.size(0) :] = old_weight[-1].unsqueeze(0)
+    embeddings.position_embeddings = new_embeddings
+    embeddings.register_buffer("position_ids", torch.arange(required_positions, device=old_weight.device).expand((1, -1)), persistent=False)
+    embeddings.register_buffer("token_type_ids", torch.zeros((1, required_positions), dtype=torch.long, device=old_weight.device), persistent=False)
+    model.config.max_position_embeddings = required_positions
+    print(f"Extended position embeddings to {required_positions} for max_length={max_length}", flush=True)
+
+
 def find_subsequence_ids(tokens: list[int], needle: list[int]) -> int | None:
     if not needle or len(needle) > len(tokens):
         return None
@@ -285,6 +321,7 @@ def main() -> None:
     model = AutoModelForQuestionAnswering.from_pretrained(args.model_name)
     if len(tokenizer) > model.get_input_embeddings().num_embeddings:
         model.resize_token_embeddings(len(tokenizer))
+    extend_position_capacity(model, tokenizer, args.max_length)
     train_rows = build_records(args.train_data, args.context_dir, args.train_limit, args.max_context_chars, "train")
     dev_rows = build_records(args.dev_data, args.context_dir, args.dev_limit, args.max_context_chars, "dev")
     train_features = prepare_features(train_rows, tokenizer, args.max_length, args.doc_stride, "train")

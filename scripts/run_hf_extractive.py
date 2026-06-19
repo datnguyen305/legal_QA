@@ -10,7 +10,7 @@ from pathlib import Path
 from data_preprocessing.cpg_preprocess import progress_bar
 from data_preprocessing.legalqa_data import load_examples, write_jsonl
 from data_preprocessing.qa_preprocess import make_extractive_record
-from train_hf_extractive import decode_best_span
+from train_hf_extractive import decode_best_span, extend_position_capacity
 
 
 def main() -> None:
@@ -35,6 +35,7 @@ def main() -> None:
     model = AutoModelForQuestionAnswering.from_pretrained(args.model_dir)
     if len(tokenizer) > model.get_input_embeddings().num_embeddings:
         model.resize_token_embeddings(len(tokenizer))
+    extend_position_capacity(model, tokenizer, config.get("max_length", 512))
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
