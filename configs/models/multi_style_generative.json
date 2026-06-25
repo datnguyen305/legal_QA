@@ -1,0 +1,7 @@
+{
+  "train_script": "scripts/train_multi_style_generative.py",
+  "run_script": "scripts/run_multi_style_generative.py",
+  "model_dir": "models/multi_style_generative",
+  "predictions": "outputs/multi_style_generative_predictions.jsonl",
+  "metrics": "outputs/multi_style_generative_metrics.json"
+}

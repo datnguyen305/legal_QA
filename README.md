@@ -5,6 +5,9 @@ This workspace contains runnable implementations for seven proposed QA methods:
 - **CPG**: curriculum pointer-generator with an Introspective Alignment Layer.
 - **S-NET**: evidence extraction followed by GRU seq2seq answer synthesis with evidence start/end feature embeddings, trained from scratch.
 - **LatentQA**: stochastic selector network that marginalizes answer tokens over vocabulary, question-copy, and context-copy sources.
+- **DCMN+**: dual co-matching reader with pointer generation, trained from scratch.
+- **Multi-style Generative RC**: style-conditioned abstractive reader/generator, trained from scratch.
+- **GAQA**: gated-attention QA generator with context copy, trained from scratch.
 - **QANet**: feed-forward extractive reader with depthwise separable convolution, multi-head self-attention, trilinear context-query attention, shared model encoders, and span output.
 - **Cross-Passage**: multi-passage extractive reader with pointer-network boundaries, answer-content modeling, and cross-passage answer-candidate verification.
 - **Deep Cascade**: coarse-to-fine multi-document reader with auxiliary document and paragraph extraction heads plus answer span extraction.
@@ -71,6 +74,23 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
 ```bash
 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_latentqa.sh
+```
+
+Run one of the additional from-scratch abstractive baselines:
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_dcmn_plus.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_multi_style_generative.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_gaqa.sh
 ```
 
 Run one of the extractive paper models:

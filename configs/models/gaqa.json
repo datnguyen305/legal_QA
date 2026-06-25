@@ -1,0 +1,7 @@
+{
+  "train_script": "scripts/train_gaqa.py",
+  "run_script": "scripts/run_gaqa.py",
+  "model_dir": "models/gaqa",
+  "predictions": "outputs/gaqa_predictions.jsonl",
+  "metrics": "outputs/gaqa_metrics.json"
+}

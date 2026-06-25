@@ -1,0 +1,7 @@
+{
+  "train_script": "scripts/train_dcmn_plus.py",
+  "run_script": "scripts/run_dcmn_plus.py",
+  "model_dir": "models/dcmn_plus",
+  "predictions": "outputs/dcmn_plus_predictions.jsonl",
+  "metrics": "outputs/dcmn_plus_metrics.json"
+}
