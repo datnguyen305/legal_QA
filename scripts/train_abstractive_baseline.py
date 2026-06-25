@@ -71,7 +71,7 @@ def main() -> None:
     parser.add_argument("--train-limit", type=int, default=None)
     parser.add_argument("--dev-limit", type=int, default=None)
     parser.add_argument("--max-context-chars", type=int, default=12000)
-    parser.add_argument("--max-context-tokens", type=int, default=800)
+    parser.add_argument("--max-context-tokens", type=int, default=1024)
     parser.add_argument("--max-question-tokens", type=int, default=64)
     parser.add_argument("--max-answer-tokens", type=int, default=96)
     parser.add_argument("--vocab-size", type=int, default=30000)
