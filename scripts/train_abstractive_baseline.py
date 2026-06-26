@@ -15,7 +15,7 @@ from evaluate_predictions import rouge_l
 from train_cpg import build_vocab, encode
 
 
-MODEL_CHOICES = ("dcmn_plus", "multi_style_generative", "gaqa")
+MODEL_CHOICES = ("dcmn_plus", "multi_style_generative", "gaqa", "chime")
 
 
 def build_rows(path: str, context_dir: str, limit: int | None, max_context_chars: int, progress_label: str) -> list[dict]:
@@ -35,7 +35,7 @@ def build_rows(path: str, context_dir: str, limit: int | None, max_context_chars
 
 
 def make_model(name: str, vocab: dict, hidden: int, decoder_hidden: int, num_styles: int):
-    from model_architectures.abstractive_baselines import DCMNPlusGenerator, GAQAGenerator, MultiStyleGenerativeRC
+    from model_architectures.abstractive_baselines import CHIMEGenerator, DCMNPlusGenerator, GAQAGenerator, MultiStyleGenerativeRC
 
     args = (len(vocab), vocab["<pad>"], vocab["<bos>"], vocab["<eos>"])
     if name == "dcmn_plus":
@@ -44,6 +44,8 @@ def make_model(name: str, vocab: dict, hidden: int, decoder_hidden: int, num_sty
         return MultiStyleGenerativeRC(*args, hidden=hidden, decoder_hidden=decoder_hidden, num_styles=num_styles)
     if name == "gaqa":
         return GAQAGenerator(*args, hidden=hidden, decoder_hidden=decoder_hidden)
+    if name == "chime":
+        return CHIMEGenerator(*args, hidden=hidden, decoder_hidden=decoder_hidden)
     raise ValueError(name)
 
 

@@ -8,6 +8,7 @@ This workspace contains runnable implementations for seven proposed QA methods:
 - **DCMN+**: dual co-matching reader with pointer generation, trained from scratch.
 - **Multi-style Generative RC**: style-conditioned abstractive reader/generator, trained from scratch.
 - **GAQA**: gated-attention QA generator with context copy, trained from scratch.
+- **CHIME**: cross-passage hierarchical memory generator with context and answer memories, trained from scratch.
 - **QANet**: feed-forward extractive reader with depthwise separable convolution, multi-head self-attention, trilinear context-query attention, shared model encoders, and span output.
 - **Cross-Passage**: multi-passage extractive reader with pointer-network boundaries, answer-content modeling, and cross-passage answer-candidate verification.
 - **Deep Cascade**: coarse-to-fine multi-document reader with auxiliary document and paragraph extraction heads plus answer span extraction.
@@ -91,6 +92,11 @@ TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
 ```bash
 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_gaqa.sh
+```
+
+```bash
+TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
+  scripts/pipelines/run_chime.sh
 ```
 
 Run one of the extractive paper models:

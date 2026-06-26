@@ -1,0 +1,7 @@
+{
+  "train_script": "scripts/train_chime.py",
+  "run_script": "scripts/run_chime.py",
+  "model_dir": "models/chime",
+  "predictions": "outputs/chime_predictions.jsonl",
+  "metrics": "outputs/chime_metrics.json"
+}
