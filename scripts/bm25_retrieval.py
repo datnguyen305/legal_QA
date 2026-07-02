@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import hashlib
 import json
 import math
 import re
+import subprocess
 import sys
 import urllib.parse
 from collections import Counter, defaultdict
@@ -166,6 +168,87 @@ class BM25Index:
         scores = self.score_dict(query)
         best = heapq.nlargest(top_k, scores.items(), key=lambda item: item[1])
         return [(score, self.docs[doc_id]) for doc_id, score in best]
+
+
+class PyseriniBM25Index:
+    def __init__(
+        self,
+        docs: list[dict[str, str]],
+        index_dir: Path,
+        collection_dir: Path,
+        k1: float = 1.5,
+        b: float = 0.75,
+        threads: int = 4,
+    ) -> None:
+        try:
+            from pyserini.search.lucene import LuceneSearcher
+        except ImportError as exc:
+            raise RuntimeError(
+                "Pyserini is not installed in this Python environment. Install it with "
+                "`python3 -m pip install pyserini` inside your conda environment, then rerun."
+            ) from exc
+
+        self.docs = docs
+        self.doc_by_id = {doc["content"]: doc for doc in docs}
+        self.index_dir = index_dir
+        self.collection_dir = collection_dir
+        self.threads = threads
+        self._ensure_index()
+        self.searcher = LuceneSearcher(str(index_dir))
+        self.searcher.set_bm25(k1, b)
+
+    def _ensure_index(self) -> None:
+        marker = self.index_dir / ".complete"
+        if marker.exists():
+            return
+        self.collection_dir.mkdir(parents=True, exist_ok=True)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        collection_path = self.collection_dir / "docs.jsonl"
+        with collection_path.open("w", encoding="utf-8") as f:
+            for doc in self.docs:
+                f.write(
+                    json.dumps(
+                        {
+                            "id": doc["content"],
+                            "contents": f"{doc['name']}\n{doc['text']}",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        print(f"Building Pyserini Lucene index: {self.index_dir}", file=sys.stderr, flush=True)
+        command = [
+            sys.executable,
+            "-m",
+            "pyserini.index.lucene",
+            "--collection",
+            "JsonCollection",
+            "--input",
+            str(self.collection_dir),
+            "--index",
+            str(self.index_dir),
+            "--generator",
+            "DefaultLuceneDocumentGenerator",
+            "--threads",
+            str(self.threads),
+            "--storePositions",
+            "--storeDocvectors",
+            "--storeRaw",
+        ]
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError("Pyserini failed while building the Lucene index.") from exc
+        marker.write_text("ok\n", encoding="utf-8")
+
+    def search(self, query: str, top_k: int) -> list[tuple[float, dict[str, str]]]:
+        hits = self.searcher.search(query, k=top_k)
+        results: list[tuple[float, dict[str, str]]] = []
+        for hit in hits:
+            doc = self.doc_by_id.get(hit.docid)
+            if doc is not None:
+                results.append((float(hit.score), doc))
+        return results
 
 
 class DenseLSAIndex:
@@ -340,6 +423,14 @@ def evaluate_split(
     }
 
 
+def corpus_cache_key(docs: list[dict[str, str]], scope: str) -> str:
+    digest = hashlib.sha1()
+    for doc in docs:
+        digest.update(doc["content"].encode("utf-8"))
+        digest.update(b"\0")
+    return f"{scope}_{len(docs)}_{digest.hexdigest()[:12]}"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", default="dataset/structured-single-hop-IR")
@@ -352,7 +443,9 @@ def main() -> None:
     parser.add_argument("--corpus-limit", type=int, default=None)
     parser.add_argument("--k1", type=float, default=1.5)
     parser.add_argument("--b", type=float, default=0.75)
-    parser.add_argument("--retriever", choices=["bm25", "dense", "hybrid"], default="hybrid")
+    parser.add_argument("--retriever", choices=["bm25", "dense", "hybrid"], default="bm25")
+    parser.add_argument("--bm25-backend", choices=["pyserini", "python"], default="pyserini")
+    parser.add_argument("--pyserini-threads", type=int, default=4)
     parser.add_argument("--dense-components", type=int, default=256)
     parser.add_argument("--dense-max-features", type=int, default=100000)
     parser.add_argument("--dense-max-doc-chars", type=int, default=12000)
@@ -369,7 +462,21 @@ def main() -> None:
     split_paths = [data_dir / split for split in args.splits]
 
     docs = load_corpus(context_dir, structured_dir, split_paths, args.corpus_scope, args.limit, args.corpus_limit)
-    bm25_index = BM25Index(docs, k1=args.k1, b=args.b)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.retriever == "bm25" and args.bm25_backend == "pyserini":
+        cache_key = corpus_cache_key(docs, args.corpus_scope)
+        bm25_index = PyseriniBM25Index(
+            docs,
+            index_dir=output_dir / "pyserini_indexes" / cache_key,
+            collection_dir=output_dir / "pyserini_collections" / cache_key,
+            k1=args.k1,
+            b=args.b,
+            threads=args.pyserini_threads,
+        )
+    else:
+        bm25_index = BM25Index(docs, k1=args.k1, b=args.b)
     if args.retriever == "bm25":
         index = bm25_index
     else:
@@ -389,12 +496,10 @@ def main() -> None:
                 bm25_weight=args.hybrid_bm25_weight,
                 candidate_count=args.hybrid_candidates,
             )
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     summary: dict[str, Any] = {
         "corpus_scope": args.corpus_scope,
         "retriever": args.retriever,
+        "bm25_backend": args.bm25_backend if args.retriever == "bm25" else None,
         "documents": len(docs),
         "top_k": args.top_k,
         "k1": args.k1,
@@ -407,11 +512,13 @@ def main() -> None:
 
     for split_path in split_paths:
         rows = load_split(split_path, args.limit)
-        pred_path = None if args.no_predictions else output_dir / f"{split_path.stem}_{args.retriever}_top{args.top_k}.jsonl"
-        label = None if args.quiet else f"{args.retriever} {split_path.name}"
+        run_name = f"{args.retriever}_{args.bm25_backend}" if args.retriever == "bm25" else args.retriever
+        pred_path = None if args.no_predictions else output_dir / f"{split_path.stem}_{run_name}_top{args.top_k}.jsonl"
+        label = None if args.quiet else f"{run_name} {split_path.name}"
         summary["splits"][split_path.name] = evaluate_split(rows, index, args.top_k, pred_path, label)
 
-    summary_path = output_dir / f"{args.retriever}_{args.corpus_scope}_top{args.top_k}_summary.json"
+    run_name = f"{args.retriever}_{args.bm25_backend}" if args.retriever == "bm25" else args.retriever
+    summary_path = output_dir / f"{run_name}_{args.corpus_scope}_top{args.top_k}_summary.json"
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
         f.write("\n")

@@ -185,6 +185,20 @@ EXTRACTIVE_CACHE_DIR=/tmp/legalqa_extractive_cache scripts/pipelines/run_qanet.s
 Run one of the IR/RAG retrieval systems:
 
 ```bash
+BM25_PREDICTIONS=0 scripts/pipelines/run_bm25_retrieval.sh
+```
+
+BM25 retrieval uses Pyserini/Lucene by default over the structured corpus
+mapped from `dataset/contexts` to
+`dataset/structured-single-hop-IR/structured_data`. It reports `precision@3`,
+`recall@3`, `f1`, `hit@1`, and `mrr`. To use the old dependency-light Python
+BM25 implementation instead:
+
+```bash
+BM25_BACKEND=python BM25_PREDICTIONS=0 scripts/pipelines/run_bm25_retrieval.sh
+```
+
+```bash
 RAG_METHOD=ircot RAG_PREDICTIONS=0 scripts/pipelines/run_rag_retrieval.sh
 ```
 
