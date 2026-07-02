@@ -8,6 +8,7 @@ import heapq
 import json
 import math
 import re
+import sys
 import urllib.parse
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -261,6 +262,7 @@ def evaluate_split(
     index: Any,
     top_k: int,
     output_path: Path | None,
+    progress_label: str | None = None,
 ) -> dict[str, float]:
     total = 0
     precision_sum = 0.0
@@ -272,6 +274,12 @@ def evaluate_split(
     writer = output_path.open("w", encoding="utf-8") if output_path else None
     try:
         for idx, row in enumerate(rows):
+            if progress_label and (idx == 0 or (idx + 1) % 100 == 0 or idx + 1 == len(rows)):
+                done = idx + 1
+                width = 30
+                filled = int(width * done / max(1, len(rows)))
+                bar = "#" * filled + "-" * (width - filled)
+                print(f"\r{progress_label}: [{bar}] {done}/{len(rows)}", end="", file=sys.stderr, flush=True)
             gold = context_refs(row)
             if not gold:
                 continue
@@ -317,6 +325,8 @@ def evaluate_split(
                     + "\n"
                 )
     finally:
+        if progress_label:
+            print(file=sys.stderr)
         if writer:
             writer.close()
 
@@ -350,6 +360,7 @@ def main() -> None:
     parser.add_argument("--hybrid-candidates", type=int, default=100)
     parser.add_argument("--output-dir", default="outputs/bm25")
     parser.add_argument("--no-predictions", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -397,7 +408,8 @@ def main() -> None:
     for split_path in split_paths:
         rows = load_split(split_path, args.limit)
         pred_path = None if args.no_predictions else output_dir / f"{split_path.stem}_{args.retriever}_top{args.top_k}.jsonl"
-        summary["splits"][split_path.name] = evaluate_split(rows, index, args.top_k, pred_path)
+        label = None if args.quiet else f"{args.retriever} {split_path.name}"
+        summary["splits"][split_path.name] = evaluate_split(rows, index, args.top_k, pred_path, label)
 
     summary_path = output_dir / f"{args.retriever}_{args.corpus_scope}_top{args.top_k}_summary.json"
     with summary_path.open("w", encoding="utf-8") as f:

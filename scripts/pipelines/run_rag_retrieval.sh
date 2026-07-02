@@ -15,6 +15,7 @@ RAG_LIMIT=${RAG_LIMIT:-}
 RAG_CORPUS_LIMIT=${RAG_CORPUS_LIMIT:-}
 RAG_PREDICTIONS=${RAG_PREDICTIONS:-1}
 RAG_DENSE_COMPONENTS=${RAG_DENSE_COMPONENTS:-128}
+RAG_QUIET=${RAG_QUIET:-0}
 
 limit_args=()
 if [[ -n "$RAG_LIMIT" ]]; then
@@ -29,6 +30,9 @@ fi
 prediction_args=()
 if [[ "$RAG_PREDICTIONS" == "0" ]]; then
   prediction_args+=(--no-predictions)
+fi
+if [[ "$RAG_QUIET" == "1" ]]; then
+  prediction_args+=(--quiet)
 fi
 
 python3 "$REPO_ROOT/scripts/rag_retrieval.py" \

@@ -16,6 +16,7 @@ BM25_DENSE_COMPONENTS=${BM25_DENSE_COMPONENTS:-256}
 BM25_LIMIT=${BM25_LIMIT:-}
 BM25_CORPUS_LIMIT=${BM25_CORPUS_LIMIT:-}
 BM25_PREDICTIONS=${BM25_PREDICTIONS:-1}
+BM25_QUIET=${BM25_QUIET:-0}
 
 limit_args=()
 if [[ -n "$BM25_LIMIT" ]]; then
@@ -25,6 +26,9 @@ fi
 prediction_args=()
 if [[ "$BM25_PREDICTIONS" == "0" ]]; then
   prediction_args+=(--no-predictions)
+fi
+if [[ "$BM25_QUIET" == "1" ]]; then
+  prediction_args+=(--quiet)
 fi
 
 corpus_limit_args=()

@@ -240,7 +240,13 @@ class ViHERMESRetriever:
         return self.hybrid.search(self._normalize_query(query), top_k)
 
 
-def evaluate_split(rows: list[dict[str, Any]], index: Any, top_k: int, output_path: Path | None) -> dict[str, float]:
+def evaluate_split(
+    rows: list[dict[str, Any]],
+    index: Any,
+    top_k: int,
+    output_path: Path | None,
+    progress_label: str | None = None,
+) -> dict[str, float]:
     total = 0
     precision_sum = recall_sum = f1_sum = 0.0
     hit_at_1 = 0
@@ -248,6 +254,12 @@ def evaluate_split(rows: list[dict[str, Any]], index: Any, top_k: int, output_pa
     writer = output_path.open("w", encoding="utf-8") if output_path else None
     try:
         for idx, row in enumerate(rows):
+            if progress_label and (idx == 0 or (idx + 1) % 100 == 0 or idx + 1 == len(rows)):
+                done = idx + 1
+                width = 30
+                filled = int(width * done / max(1, len(rows)))
+                bar = "#" * filled + "-" * (width - filled)
+                print(f"\r{progress_label}: [{bar}] {done}/{len(rows)}", end="", file=sys.stderr, flush=True)
             gold = context_refs(row)
             if not gold:
                 continue
@@ -279,6 +291,8 @@ def evaluate_split(rows: list[dict[str, Any]], index: Any, top_k: int, output_pa
                     "first_hit_rank": first_hit_rank,
                 }, ensure_ascii=False) + "\n")
     finally:
+        if progress_label:
+            print(file=sys.stderr)
         if writer:
             writer.close()
     return {
@@ -342,6 +356,7 @@ def main() -> None:
     parser.add_argument("--raptor-top-clusters", type=int, default=4)
     parser.add_argument("--output-dir", default="outputs/rag")
     parser.add_argument("--no-predictions", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -367,7 +382,8 @@ def main() -> None:
     for split_path in split_paths:
         rows = load_split(split_path, args.limit)
         pred_path = None if args.no_predictions else output_dir / f"{split_path.stem}_{args.method}_top{args.top_k}.jsonl"
-        summary["splits"][split_path.name] = evaluate_split(rows, retriever, args.top_k, pred_path)
+        label = None if args.quiet else f"{args.method} {split_path.name}"
+        summary["splits"][split_path.name] = evaluate_split(rows, retriever, args.top_k, pred_path, label)
     summary_path = output_dir / f"{args.method}_{args.corpus_scope}_top{args.top_k}_summary.json"
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
