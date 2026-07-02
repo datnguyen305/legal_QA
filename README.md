@@ -21,11 +21,20 @@ Pretrained encoder extractive QA fine-tuning is available for **LEGAL-BERT**,
 **ViDeBERTa**, **mBERT**, **XLM-RoBERTa**, and **PhoBERT** through Hugging Face
 `AutoModelForQuestionAnswering`.
 
+IR/RAG retrieval baselines are available for the systems listed in `papers/IR`:
+
+- **IRCoT**: iterative BM25 retrieval with query expansion from retrieved evidence.
+- **HippoRAG**: graph-augmented retrieval over salient legal terms and documents.
+- **LightRAG**: lightweight hybrid sparse/dense retrieval with metadata expansion.
+- **MiniRAG**: compact hybrid retrieval over shortened document representations.
+- **RAPTOR**: hierarchical cluster-first dense retrieval with local reranking.
+- **Vi_HERMES**: Vietnamese legal hybrid retrieval with legal metadata query expansion.
+
 The processed dataset files are expected at:
 
-- `dataset/train_data.json`
-- `dataset/dev_data.json`
-- `dataset/test_data.json`
+- `dataset/QA/train_data.json`
+- `dataset/QA/dev_data.json`
+- `dataset/QA/test_data.json`
 - `dataset/contexts/`
 
 Each prediction file is JSONL with `prediction` and `reference` fields. The evaluator reports:
@@ -172,6 +181,34 @@ To use another cache directory:
 ```bash
 EXTRACTIVE_CACHE_DIR=/tmp/legalqa_extractive_cache scripts/pipelines/run_qanet.sh
 ```
+
+Run one of the IR/RAG retrieval systems:
+
+```bash
+RAG_METHOD=ircot RAG_PREDICTIONS=0 scripts/pipelines/run_rag_retrieval.sh
+```
+
+Convenience wrappers are also available:
+
+```bash
+scripts/pipelines/run_ircot.sh
+scripts/pipelines/run_hipporag.sh
+scripts/pipelines/run_lightrag.sh
+scripts/pipelines/run_minirag.sh
+scripts/pipelines/run_raptor.sh
+scripts/pipelines/run_vi_hermes.sh
+```
+
+Run all IR/RAG systems:
+
+```bash
+RAG_PREDICTIONS=0 scripts/pipelines/run_all_rag_retrieval.sh
+```
+
+RAG retrieval defaults to the structured single-hop IR split at
+`dataset/structured-single-hop-IR`, the shared context files at
+`dataset/contexts`, and the structured corpus scope. Retrieval metrics include
+`precision@3`, `recall@3`, `f1`, `hit@1`, and `mrr`.
 
 Smoke test a pretrained seq2seq model:
 

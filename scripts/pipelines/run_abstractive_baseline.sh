@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+cd "$REPO_ROOT"
 MODEL=${MODEL:-dcmn_plus}
-DATA_DIR=${DATA_DIR:-dataset}
+DATA_DIR=${DATA_DIR:-$REPO_ROOT/dataset/QA}
 TRAIN_DATA=${TRAIN_DATA:-$DATA_DIR/train_data.json}
 DEV_DATA=${DEV_DATA:-$DATA_DIR/dev_data.json}
 TEST_DATA=${TEST_DATA:-$DATA_DIR/test_data.json}
-CONTEXT_DIR=${CONTEXT_DIR:-$DATA_DIR/contexts}
+CONTEXT_DIR=${CONTEXT_DIR:-$REPO_ROOT/dataset/contexts}
 TRAIN_LIMIT=${TRAIN_LIMIT:-}
 DEV_LIMIT=${DEV_LIMIT:-}
 TEST_LIMIT=${TEST_LIMIT:-}

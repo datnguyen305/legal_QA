@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+RAG_METHOD=ircot scripts/pipelines/run_rag_retrieval.sh

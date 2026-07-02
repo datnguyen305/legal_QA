@@ -287,8 +287,8 @@ def decode_best_span(row: dict, tokenizer, model, device, max_length: int, doc_s
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-name", required=True)
-    parser.add_argument("--train-data", default="dataset/train_data.json")
-    parser.add_argument("--dev-data", default="dataset/dev_data.json")
+    parser.add_argument("--train-data", default="dataset/QA/train_data.json")
+    parser.add_argument("--dev-data", default="dataset/QA/dev_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--train-limit", type=int, default=None)

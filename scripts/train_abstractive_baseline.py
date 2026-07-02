@@ -66,8 +66,8 @@ def decode_logits(logits, inv_vocab: dict[int, str]) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
-    parser.add_argument("--train-data", default="dataset/train_data.json")
-    parser.add_argument("--dev-data", default="dataset/dev_data.json")
+    parser.add_argument("--train-data", default="dataset/QA/train_data.json")
+    parser.add_argument("--dev-data", default="dataset/QA/dev_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--train-limit", type=int, default=None)

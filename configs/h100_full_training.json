@@ -1,9 +1,9 @@
 {
   "hardware": "H100 60GB",
   "data": {
-    "train": "dataset/train_data.json",
-    "dev": "dataset/dev_data.json",
-    "test": "dataset/test_data.json",
+    "train": "dataset/QA/train_data.json",
+    "dev": "dataset/QA/dev_data.json",
+    "test": "dataset/QA/test_data.json",
     "contexts": "dataset/contexts",
     "limits": null
   },

@@ -17,7 +17,7 @@ from train_extractive import MODEL_CHOICES, make_model, split_passages
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
-    parser.add_argument("--data", default="dataset/test_data.json")
+    parser.add_argument("--data", default="dataset/QA/test_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output", default=None)
     parser.add_argument("--limit", type=int, default=None)

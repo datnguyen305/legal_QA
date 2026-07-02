@@ -31,7 +31,7 @@ def disable_apex_import() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
-    parser.add_argument("--data", default="dataset/test_data.json")
+    parser.add_argument("--data", default="dataset/QA/test_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output", required=True)
     parser.add_argument("--limit", type=int, default=None)

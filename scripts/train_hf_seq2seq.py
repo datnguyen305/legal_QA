@@ -134,8 +134,8 @@ def configure_tokenizer(tokenizer, model_name: str, src_lang: str | None, tgt_la
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-name", required=True, help="Hugging Face checkpoint, e.g. VietAI/vit5-base")
-    parser.add_argument("--train-data", default="dataset/train_data.json")
-    parser.add_argument("--dev-data", default="dataset/dev_data.json")
+    parser.add_argument("--train-data", default="dataset/QA/train_data.json")
+    parser.add_argument("--dev-data", default="dataset/QA/dev_data.json")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--cache-dir", default="cache/seq2seq")
