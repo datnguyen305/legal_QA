@@ -83,11 +83,12 @@ class IRCoTRetriever:
         counts: Counter[str] = Counter()
         for doc_id in doc_ids:
             counts.update(t for t in tokenize(self.docs[doc_id]["text"][:6000]) if len(t) > 2 and t not in query_terms)
+        idf = getattr(self.bm25, "idf", None)
         weighted = {
-                term: count * getattr(self.bm25, "idf", {}).get(term, 1.0)
-                for term, count in counts.items()
-                if term in getattr(self.bm25, "idf", {term: 1.0})
-            }
+            term: count * (idf.get(term, 1.0) if idf is not None else 1.0)
+            for term, count in counts.items()
+            if idf is None or term in idf
+        }
         return [term for term, _ in top_items(weighted, self.expansion_terms)]
 
     def _score_dict(self, query: str) -> dict[int, float]:
