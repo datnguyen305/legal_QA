@@ -30,7 +30,9 @@ from bm25_retrieval import (  # noqa: E402
     BM25Index,
     DenseLSAIndex,
     HybridBM25DenseIndex,
+    PyseriniBM25Index,
     context_refs,
+    corpus_cache_key,
     load_corpus,
     load_split,
     normalize_candidate_scores,
@@ -62,28 +64,48 @@ class IRCoTRetriever:
     reruns BM25. Final scores are the accumulated evidence scores.
     """
 
-    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, iterations: int = 2, expansion_terms: int = 8) -> None:
+    def __init__(
+        self,
+        docs: list[dict[str, str]],
+        bm25: Any,
+        iterations: int = 2,
+        expansion_terms: int = 8,
+        candidate_count: int = 100,
+    ) -> None:
         self.docs = docs
         self.bm25 = bm25
         self.iterations = iterations
         self.expansion_terms = expansion_terms
+        self.candidate_count = candidate_count
+        self.doc_id_by_content = {doc["content"]: doc_id for doc_id, doc in enumerate(docs)}
 
     def _expand_terms(self, doc_ids: list[int], query_terms: set[str]) -> list[str]:
         counts: Counter[str] = Counter()
         for doc_id in doc_ids:
             counts.update(t for t in tokenize(self.docs[doc_id]["text"][:6000]) if len(t) > 2 and t not in query_terms)
         weighted = {
-            term: count * self.bm25.idf.get(term, 0.0)
-            for term, count in counts.items()
-            if term in self.bm25.idf
-        }
+                term: count * getattr(self.bm25, "idf", {}).get(term, 1.0)
+                for term, count in counts.items()
+                if term in getattr(self.bm25, "idf", {term: 1.0})
+            }
         return [term for term, _ in top_items(weighted, self.expansion_terms)]
+
+    def _score_dict(self, query: str) -> dict[int, float]:
+        if hasattr(self.bm25, "score_dict"):
+            return self.bm25.score_dict(query)
+        retrieved = self.bm25.search(query, self.candidate_count)
+        scores: dict[int, float] = {}
+        for score, doc in retrieved:
+            doc_id = self.doc_id_by_content.get(doc["content"])
+            if doc_id is not None:
+                scores[doc_id] = score
+        return scores
 
     def search(self, query: str, top_k: int) -> list[tuple[float, dict[str, str]]]:
         expanded = query
         accumulated: defaultdict[int, float] = defaultdict(float)
         for step in range(self.iterations):
-            scores = self.bm25.score_dict(expanded)
+            scores = self._score_dict(expanded)
             for doc_id, score in scores.items():
                 accumulated[doc_id] += score / (step + 1)
             seeds = [doc_id for doc_id, _ in top_items(scores, max(top_k, 5))]
@@ -305,9 +327,21 @@ def evaluate_split(
     }
 
 
-def make_retriever(args: argparse.Namespace, docs: list[dict[str, str]]) -> Any:
-    bm25 = BM25Index(docs, k1=args.k1, b=args.b)
-    needs_dense = args.method in {"lightrag", "minirag", "raptor", "vi_hermes"}
+def make_retriever(args: argparse.Namespace, docs: list[dict[str, str]], output_dir: Path) -> Any:
+    method = "ircot" if args.method == "ifcot" else args.method
+    if method == "ircot" and args.bm25_backend == "pyserini":
+        cache_key = corpus_cache_key(docs, args.corpus_scope)
+        bm25 = PyseriniBM25Index(
+            docs,
+            index_dir=output_dir / "pyserini_indexes" / f"ircot_{cache_key}",
+            collection_dir=output_dir / "pyserini_collections" / f"ircot_{cache_key}",
+            k1=args.k1,
+            b=args.b,
+            threads=args.pyserini_threads,
+        )
+    else:
+        bm25 = BM25Index(docs, k1=args.k1, b=args.b)
+    needs_dense = method in {"lightrag", "minirag", "raptor", "vi_hermes"}
     dense = None
     if needs_dense:
         dense = DenseLSAIndex(
@@ -316,24 +350,30 @@ def make_retriever(args: argparse.Namespace, docs: list[dict[str, str]]) -> Any:
             max_features=args.dense_max_features,
             max_doc_chars=args.dense_max_doc_chars,
         )
-    if args.method == "ircot":
-        return IRCoTRetriever(docs, bm25, iterations=args.ircot_iterations, expansion_terms=args.ircot_expansion_terms)
-    if args.method == "hipporag":
+    if method == "ircot":
+        return IRCoTRetriever(
+            docs,
+            bm25,
+            iterations=args.ircot_iterations,
+            expansion_terms=args.ircot_expansion_terms,
+            candidate_count=args.ircot_candidates,
+        )
+    if method == "hipporag":
         return HippoRAGRetriever(docs, bm25, max_terms_per_doc=args.graph_terms_per_doc, seed_docs=args.graph_seed_docs)
-    if args.method == "lightrag":
+    if method == "lightrag":
         return LightRAGRetriever(docs, bm25, dense, candidate_count=args.hybrid_candidates)
-    if args.method == "minirag":
+    if method == "minirag":
         return MiniRAGRetriever(docs, n_components=min(args.dense_components, 96))
-    if args.method == "raptor":
+    if method == "raptor":
         return RAPTORRetriever(docs, bm25, dense, clusters=args.raptor_clusters, top_clusters=args.raptor_top_clusters)
-    if args.method == "vi_hermes":
+    if method == "vi_hermes":
         return ViHERMESRetriever(docs, bm25, dense)
     raise ValueError(f"Unknown RAG method: {args.method}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--method", choices=["ircot", "hipporag", "lightrag", "minirag", "raptor", "vi_hermes"], required=True)
+    parser.add_argument("--method", choices=["ircot", "ifcot", "hipporag", "lightrag", "minirag", "raptor", "vi_hermes"], required=True)
     parser.add_argument("--data-dir", default="dataset/structured-single-hop-IR")
     parser.add_argument("--context-dir", default="dataset/contexts")
     parser.add_argument("--structured-dir", default="dataset/structured-single-hop-IR/structured_data")
@@ -344,12 +384,15 @@ def main() -> None:
     parser.add_argument("--corpus-limit", type=int, default=None)
     parser.add_argument("--k1", type=float, default=1.5)
     parser.add_argument("--b", type=float, default=0.75)
+    parser.add_argument("--bm25-backend", choices=["python", "pyserini"], default="python")
+    parser.add_argument("--pyserini-threads", type=int, default=4)
     parser.add_argument("--dense-components", type=int, default=128)
     parser.add_argument("--dense-max-features", type=int, default=100000)
     parser.add_argument("--dense-max-doc-chars", type=int, default=12000)
     parser.add_argument("--hybrid-candidates", type=int, default=100)
     parser.add_argument("--ircot-iterations", type=int, default=2)
     parser.add_argument("--ircot-expansion-terms", type=int, default=8)
+    parser.add_argument("--ircot-candidates", type=int, default=100)
     parser.add_argument("--graph-terms-per-doc", type=int, default=40)
     parser.add_argument("--graph-seed-docs", type=int, default=20)
     parser.add_argument("--raptor-clusters", type=int, default=64)
@@ -369,11 +412,12 @@ def main() -> None:
         args.limit,
         args.corpus_limit,
     )
-    retriever = make_retriever(args, docs)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    retriever = make_retriever(args, docs, output_dir)
     summary: dict[str, Any] = {
         "method": args.method,
+        "bm25_backend": args.bm25_backend if args.method in {"ircot", "ifcot"} else None,
         "corpus_scope": args.corpus_scope,
         "documents": len(docs),
         "top_k": args.top_k,

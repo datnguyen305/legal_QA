@@ -14,7 +14,12 @@ RAG_TOP_K=${RAG_TOP_K:-3}
 RAG_LIMIT=${RAG_LIMIT:-}
 RAG_CORPUS_LIMIT=${RAG_CORPUS_LIMIT:-}
 RAG_PREDICTIONS=${RAG_PREDICTIONS:-1}
+RAG_BM25_BACKEND=${RAG_BM25_BACKEND:-python}
+RAG_PYSERINI_THREADS=${RAG_PYSERINI_THREADS:-4}
 RAG_DENSE_COMPONENTS=${RAG_DENSE_COMPONENTS:-128}
+RAG_IRCOT_ITERATIONS=${RAG_IRCOT_ITERATIONS:-2}
+RAG_IRCOT_EXPANSION_TERMS=${RAG_IRCOT_EXPANSION_TERMS:-8}
+RAG_IRCOT_CANDIDATES=${RAG_IRCOT_CANDIDATES:-100}
 RAG_QUIET=${RAG_QUIET:-0}
 
 limit_args=()
@@ -42,7 +47,12 @@ python3 "$REPO_ROOT/scripts/rag_retrieval.py" \
   --structured-dir "$STRUCTURED_DIR" \
   --corpus-scope "$RAG_CORPUS_SCOPE" \
   --top-k "$RAG_TOP_K" \
+  --bm25-backend "$RAG_BM25_BACKEND" \
+  --pyserini-threads "$RAG_PYSERINI_THREADS" \
   --dense-components "$RAG_DENSE_COMPONENTS" \
+  --ircot-iterations "$RAG_IRCOT_ITERATIONS" \
+  --ircot-expansion-terms "$RAG_IRCOT_EXPANSION_TERMS" \
+  --ircot-candidates "$RAG_IRCOT_CANDIDATES" \
   --output-dir "$RAG_OUTPUT_DIR" \
   "${limit_args[@]}" \
   "${corpus_limit_args[@]}" \
