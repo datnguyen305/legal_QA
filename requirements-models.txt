@@ -3,3 +3,4 @@ transformers
 sentencepiece
 bert-score
 pyserini
+networkx

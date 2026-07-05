@@ -13,11 +13,13 @@ import argparse
 import heapq
 import json
 import math
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+import networkx as nx
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import normalize
@@ -54,6 +56,128 @@ def normalized_fusion(score_maps: list[tuple[dict[int, float], float]]) -> dict[
         for doc_id, score in normed.items():
             fused[doc_id] += weight * score
     return fused
+
+
+LEGAL_TYPE_PATTERNS = {
+    "luat": ("luật", "luat"),
+    "bo_luat": ("bộ luật", "bo-luat", "bo luat"),
+    "nghi_dinh": ("nghị định", "nghi-dinh", "nghi dinh"),
+    "thong_tu": ("thông tư", "thong-tu", "thong tu"),
+    "quyet_dinh": ("quyết định", "quyet-dinh", "quyet dinh"),
+    "nghi_quyet": ("nghị quyết", "nghi-quyet", "nghi quyet"),
+    "chi_thi": ("chỉ thị", "chi-thi", "chi thi"),
+    "cong_van": ("công văn", "cong-van", "cong van"),
+}
+LEGAL_REF_RE = re.compile(
+    r"(?i)\b(?:luật|nghị\s+định|thông\s+tư|quyết\s+định|nghị\s+quyết|chỉ\s+thị|công\s+văn)\s+"
+    r"(?:số\s+)?([0-9]+/[0-9]{4}/[A-ZĐ\-]+)"
+)
+YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
+
+
+def legal_doc_type(text: str) -> str | None:
+    lowered = text.lower()
+    for doc_type, patterns in LEGAL_TYPE_PATTERNS.items():
+        if any(pattern in lowered for pattern in patterns):
+            return doc_type
+    return None
+
+
+def legal_year(text: str) -> str | None:
+    match = YEAR_RE.search(text)
+    return match.group(1) if match else None
+
+
+def header_terms(text: str, max_terms: int = 8) -> list[str]:
+    header = " ".join(line.strip() for line in text[:1200].splitlines()[:12])
+    counts = Counter(t for t in tokenize(header) if len(t) > 2)
+    return [term for term, _ in counts.most_common(max_terms)]
+
+
+class LegalGraphIndex:
+    """Shared legal graph over documents, salient terms, metadata, and citations."""
+
+    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, max_terms_per_doc: int = 40) -> None:
+        self.docs = docs
+        self.bm25 = bm25
+        self.doc_id_by_content = {doc["content"]: doc_id for doc_id, doc in enumerate(docs)}
+        self.graph = nx.Graph()
+        self.doc_attrs: list[list[str]] = []
+        self.attr_docs: defaultdict[str, list[int]] = defaultdict(list)
+        for doc_id, doc in enumerate(docs):
+            doc_node = self._doc_node(doc_id)
+            self.graph.add_node(doc_node, kind="document", content=doc["content"])
+            attrs = self._document_attrs(doc, max_terms_per_doc)
+            self.doc_attrs.append(attrs)
+            for attr in attrs:
+                self.attr_docs[attr].append(doc_id)
+                self.graph.add_node(attr, kind=attr.split(":", 1)[0])
+                self.graph.add_edge(doc_node, attr)
+
+    def _doc_node(self, doc_id: int) -> str:
+        return f"doc:{doc_id}"
+
+    def _document_attrs(self, doc: dict[str, str], max_terms_per_doc: int) -> list[str]:
+        text = f"{doc['name']} {doc['text'][:8000]}"
+        counts = Counter(t for t in tokenize(text) if len(t) > 2)
+        weighted = {
+            f"term:{term}": count * self.bm25.idf.get(term, 0.0)
+            for term, count in counts.items()
+            if term in self.bm25.idf
+        }
+        attrs = [attr for attr, _ in top_items(weighted, max_terms_per_doc)]
+        doc_type = legal_doc_type(f"{doc['name']} {doc['text'][:1000]}")
+        if doc_type:
+            attrs.append(f"type:{doc_type}")
+        year = legal_year(f"{doc['name']} {doc['link']} {doc['text'][:1000]}")
+        if year:
+            attrs.append(f"year:{year}")
+        attrs.extend(f"header:{term}" for term in header_terms(doc["text"]))
+        refs = {match.group(1).lower() for match in LEGAL_REF_RE.finditer(doc["text"][:12000])}
+        attrs.extend(f"ref:{ref}" for ref in sorted(refs)[:20])
+        return list(dict.fromkeys(attrs))
+
+    def query_attrs(self, query: str) -> list[str]:
+        attrs = [f"term:{term}" for term in tokenize(query) if f"term:{term}" in self.attr_docs]
+        doc_type = legal_doc_type(query)
+        if doc_type and f"type:{doc_type}" in self.attr_docs:
+            attrs.append(f"type:{doc_type}")
+        year = legal_year(query)
+        if year and f"year:{year}" in self.attr_docs:
+            attrs.append(f"year:{year}")
+        refs = {match.group(1).lower() for match in LEGAL_REF_RE.finditer(query)}
+        attrs.extend(f"ref:{ref}" for ref in refs if f"ref:{ref}" in self.attr_docs)
+        return list(dict.fromkeys(attrs))
+
+    def propagate(
+        self,
+        query: str,
+        seed_scores: dict[int, float],
+        candidate_ids: set[int] | None = None,
+        seed_weight: float = 0.15,
+        max_neighbors_per_attr: int = 250,
+    ) -> dict[int, float]:
+        attr_scores: defaultdict[str, float] = defaultdict(float)
+        for attr in self.query_attrs(query):
+            if attr.startswith("term:"):
+                attr_scores[attr] += self.bm25.idf.get(attr.split(":", 1)[1], 1.0)
+            else:
+                attr_scores[attr] += 1.0
+        for doc_id, score in top_items(seed_scores, min(50, len(seed_scores))):
+            attrs = self.doc_attrs[doc_id]
+            for attr in attrs:
+                attr_scores[attr] += seed_weight * score / max(1, len(attrs))
+
+        doc_scores: defaultdict[int, float] = defaultdict(float)
+        for attr, score in attr_scores.items():
+            neighbors = self.attr_docs.get(attr, [])
+            if not neighbors:
+                continue
+            for doc_id in neighbors[:max_neighbors_per_attr]:
+                if candidate_ids is not None and doc_id not in candidate_ids:
+                    continue
+                doc_scores[doc_id] += score / math.sqrt(len(neighbors))
+        return dict(doc_scores)
 
 
 class IRCoTRetriever:
@@ -119,78 +243,52 @@ class IRCoTRetriever:
 
 
 class HippoRAGRetriever:
-    """Graph-augmented retrieval with personalized propagation.
+    """Graph-augmented retrieval with propagation over a legal document graph."""
 
-    Documents are connected to salient terms. Query terms and BM25 seed docs
-    activate term/document nodes; scores propagate through the bipartite graph.
-    """
-
-    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, max_terms_per_doc: int = 40, seed_docs: int = 20) -> None:
+    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, graph: LegalGraphIndex, seed_docs: int = 20) -> None:
         self.docs = docs
         self.bm25 = bm25
+        self.graph = graph
         self.seed_docs = seed_docs
-        self.doc_terms: list[list[str]] = []
-        self.term_docs: defaultdict[str, list[int]] = defaultdict(list)
-        for doc_id, doc in enumerate(docs):
-            counts = Counter(t for t in tokenize(f"{doc['name']} {doc['text'][:8000]}") if len(t) > 2)
-            weighted = {
-                term: count * bm25.idf.get(term, 0.0)
-                for term, count in counts.items()
-                if term in bm25.idf
-            }
-            terms = [term for term, _ in top_items(weighted, max_terms_per_doc)]
-            self.doc_terms.append(terms)
-            for term in terms:
-                self.term_docs[term].append(doc_id)
 
     def search(self, query: str, top_k: int) -> list[tuple[float, dict[str, str]]]:
         bm25_scores = self.bm25.score_dict(query)
-        doc_scores: defaultdict[int, float] = defaultdict(float)
-        term_scores: defaultdict[str, float] = defaultdict(float)
-        for term in tokenize(query):
-            if term in self.term_docs:
-                term_scores[term] += self.bm25.idf.get(term, 1.0)
-        for doc_id, score in top_items(bm25_scores, self.seed_docs):
-            doc_scores[doc_id] += score
-            for term in self.doc_terms[doc_id]:
-                term_scores[term] += 0.15 * score / max(1, len(self.doc_terms[doc_id]))
-        for term, score in list(term_scores.items()):
-            neighbors = self.term_docs.get(term, [])
-            if not neighbors:
-                continue
-            for doc_id in neighbors[:200]:
-                doc_scores[doc_id] += score / math.sqrt(len(neighbors))
-        fused = normalized_fusion([(bm25_scores, 0.55), (dict(doc_scores), 0.45)])
+        seeds = dict(top_items(bm25_scores, self.seed_docs))
+        graph_scores = self.graph.propagate(query, seeds, seed_weight=0.20)
+        fused = normalized_fusion([(bm25_scores, 0.50), (graph_scores, 0.50)])
         return [(score, self.docs[doc_id]) for doc_id, score in top_items(fused, top_k)]
 
 
 class LightRAGRetriever:
-    """Lightweight hybrid retrieval with graph-style neighbor expansion."""
+    """Lightweight sparse/dense retrieval with legal-graph neighbor expansion."""
 
-    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, dense: DenseLSAIndex, candidate_count: int = 80) -> None:
+    def __init__(
+        self,
+        docs: list[dict[str, str]],
+        bm25: BM25Index,
+        dense: DenseLSAIndex,
+        graph: LegalGraphIndex,
+        candidate_count: int = 80,
+    ) -> None:
         self.docs = docs
         self.bm25 = bm25
         self.dense = dense
+        self.graph = graph
         self.candidate_count = candidate_count
 
     def search(self, query: str, top_k: int) -> list[tuple[float, dict[str, str]]]:
         bm25_scores = dict(top_items(self.bm25.score_dict(query), self.candidate_count))
         dense_scores = self.dense.score_dict(query, self.candidate_count)
-        query_terms = set(tokenize(query))
-        neighbor_scores: defaultdict[int, float] = defaultdict(float)
-        for doc_id in set(bm25_scores) | set(dense_scores):
-            doc_terms = set(tokenize(self.docs[doc_id]["name"]))
-            overlap = len(query_terms & doc_terms)
-            if overlap:
-                neighbor_scores[doc_id] += overlap
-        fused = normalized_fusion([(bm25_scores, 0.45), (dense_scores, 0.45), (dict(neighbor_scores), 0.10)])
+        candidates = set(bm25_scores) | set(dense_scores)
+        graph_scores = self.graph.propagate(query, bm25_scores, candidate_ids=candidates, seed_weight=0.10)
+        fused = normalized_fusion([(bm25_scores, 0.40), (dense_scores, 0.40), (graph_scores, 0.20)])
         return [(score, self.docs[doc_id]) for doc_id, score in top_items(fused, top_k)]
 
 
 class MiniRAGRetriever:
-    """Small-footprint retrieval over compressed document representations."""
+    """Small-footprint retrieval over compressed text and the legal graph."""
 
-    def __init__(self, docs: list[dict[str, str]], n_components: int = 96) -> None:
+    def __init__(self, docs: list[dict[str, str]], graph: LegalGraphIndex, n_components: int = 96) -> None:
         compact_docs = [
             {**doc, "text": doc["text"][:2500]}
             for doc in docs
@@ -199,10 +297,15 @@ class MiniRAGRetriever:
         self.bm25 = BM25Index(compact_docs)
         self.dense = DenseLSAIndex(compact_docs, n_components=n_components, max_features=40000, max_doc_chars=2500)
         self.hybrid = HybridBM25DenseIndex(compact_docs, self.bm25, self.dense, bm25_weight=0.65, candidate_count=60)
+        self.graph = graph
 
     def search(self, query: str, top_k: int) -> list[tuple[float, dict[str, str]]]:
-        results = self.hybrid.search(query, top_k)
-        return [(score, self.docs[int(doc["content"].split("_")[-1].split(".")[0])] if False else doc) for score, doc in results]
+        sparse_scores = dict(top_items(self.bm25.score_dict(query), 60))
+        dense_scores = self.dense.score_dict(query, 60)
+        candidates = set(sparse_scores) | set(dense_scores)
+        graph_scores = self.graph.propagate(query, sparse_scores, candidate_ids=candidates, seed_weight=0.08)
+        fused = normalized_fusion([(sparse_scores, 0.45), (dense_scores, 0.35), (graph_scores, 0.20)])
+        return [(score, self.docs[doc_id]) for doc_id, score in top_items(fused, top_k)]
 
 
 class RAPTORRetriever:
@@ -242,10 +345,14 @@ class RAPTORRetriever:
 
 
 class ViHERMESRetriever:
-    """Vietnamese legal hybrid retrieval baseline using metadata expansion."""
+    """Vietnamese legal hybrid retrieval baseline using metadata and graph expansion."""
 
-    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, dense: DenseLSAIndex) -> None:
+    def __init__(self, docs: list[dict[str, str]], bm25: BM25Index, dense: DenseLSAIndex, graph: LegalGraphIndex) -> None:
         self.docs = docs
+        self.doc_id_by_content = {doc["content"]: doc_id for doc_id, doc in enumerate(docs)}
+        self.bm25 = bm25
+        self.dense = dense
+        self.graph = graph
         self.hybrid = HybridBM25DenseIndex(docs, bm25, dense, bm25_weight=0.7, candidate_count=120)
 
     def _normalize_query(self, query: str) -> str:
@@ -260,7 +367,16 @@ class ViHERMESRetriever:
         return f"{query} {' '.join(expansions)}"
 
     def search(self, query: str, top_k: int) -> list[tuple[float, dict[str, str]]]:
-        return self.hybrid.search(self._normalize_query(query), top_k)
+        expanded = self._normalize_query(query)
+        hybrid_results = self.hybrid.search(expanded, 120)
+        hybrid_scores = {
+            self.doc_id_by_content[doc["content"]]: score
+            for score, doc in hybrid_results
+            if doc["content"] in self.doc_id_by_content
+        }
+        graph_scores = self.graph.propagate(expanded, hybrid_scores, candidate_ids=set(hybrid_scores), seed_weight=0.12)
+        fused = normalized_fusion([(hybrid_scores, 0.75), (graph_scores, 0.25)])
+        return [(score, self.docs[doc_id]) for doc_id, score in top_items(fused, top_k)]
 
 
 def evaluate_split(
@@ -342,6 +458,8 @@ def make_retriever(args: argparse.Namespace, docs: list[dict[str, str]], output_
         )
     else:
         bm25 = BM25Index(docs, k1=args.k1, b=args.b)
+    graph_methods = {"hipporag", "lightrag", "minirag", "vi_hermes"}
+    graph = LegalGraphIndex(docs, bm25, max_terms_per_doc=args.graph_terms_per_doc) if method in graph_methods else None
     needs_dense = method in {"lightrag", "minirag", "raptor", "vi_hermes"}
     dense = None
     if needs_dense:
@@ -360,15 +478,15 @@ def make_retriever(args: argparse.Namespace, docs: list[dict[str, str]], output_
             candidate_count=args.ircot_candidates,
         )
     if method == "hipporag":
-        return HippoRAGRetriever(docs, bm25, max_terms_per_doc=args.graph_terms_per_doc, seed_docs=args.graph_seed_docs)
+        return HippoRAGRetriever(docs, bm25, graph, seed_docs=args.graph_seed_docs)
     if method == "lightrag":
-        return LightRAGRetriever(docs, bm25, dense, candidate_count=args.hybrid_candidates)
+        return LightRAGRetriever(docs, bm25, dense, graph, candidate_count=args.hybrid_candidates)
     if method == "minirag":
-        return MiniRAGRetriever(docs, n_components=min(args.dense_components, 96))
+        return MiniRAGRetriever(docs, graph, n_components=min(args.dense_components, 96))
     if method == "raptor":
         return RAPTORRetriever(docs, bm25, dense, clusters=args.raptor_clusters, top_clusters=args.raptor_top_clusters)
     if method == "vi_hermes":
-        return ViHERMESRetriever(docs, bm25, dense)
+        return ViHERMESRetriever(docs, bm25, dense, graph)
     raise ValueError(f"Unknown RAG method: {args.method}")
 
 
@@ -424,6 +542,14 @@ def main() -> None:
         "top_k": args.top_k,
         "splits": {},
     }
+    legal_graph = getattr(retriever, "graph", None)
+    if isinstance(legal_graph, LegalGraphIndex):
+        summary["graph"] = {
+            "nodes": legal_graph.graph.number_of_nodes(),
+            "edges": legal_graph.graph.number_of_edges(),
+            "attributes": len(legal_graph.attr_docs),
+            "max_terms_per_doc": args.graph_terms_per_doc,
+        }
     for split_path in split_paths:
         rows = load_split(split_path, args.limit)
         pred_path = None if args.no_predictions else output_dir / f"{split_path.stem}_{args.method}_top{args.top_k}.jsonl"
