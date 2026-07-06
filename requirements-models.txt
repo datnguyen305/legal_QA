@@ -1,5 +1,6 @@
 torch
 transformers
+accelerate
 sentencepiece
 bert-score
 pyserini

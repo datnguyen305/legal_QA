@@ -233,6 +233,28 @@ MODEL_KEY=vit5 TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
 
 Smoke test a pretrained encoder extractive model:
 
+Run zero-shot instruction LLMs on the QA test split and evaluate ROUGE-L,
+METEOR, and BERTScore:
+
+```bash
+scripts/pipelines/run_instruction_llm_qa.sh
+```
+
+The default model aliases are:
+
+- `llama31_8b`: `meta-llama/Llama-3.1-8B-Instruct`
+- `qwen25_7b`: `Qwen/Qwen2.5-7B-Instruct`
+- `llama3_8b`: `meta-llama/Meta-Llama-3-8B-Instruct`
+- `qwen25_14b`: `Qwen/Qwen2.5-14B-Instruct`
+- `gemma2_9b`: `google/gemma-2-9b-it`
+- `mistral7b_v03`: `mistralai/Mistral-7B-Instruct-v0.3`
+- `phi4_mini`: `microsoft/Phi-4-mini-instruct`
+- `glm4_9b`: `THUDM/glm-4-9b-chat`
+
+Use `TEST_LIMIT=10` for a smoke test, `LLM_LOAD_IN_4BIT=1` to reduce memory,
+and `MODELS="qwen25_7b phi4_mini"` to run a subset. 4-bit loading also
+requires `bitsandbytes`.
+
 ```bash
 MODEL_KEY=mbert TRAIN_LIMIT=100 DEV_LIMIT=20 TEST_LIMIT=20 BERTSCORE=0 \
   scripts/pipelines/run_hf_extractive.sh
