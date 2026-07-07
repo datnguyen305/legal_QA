@@ -18,8 +18,10 @@ LLM_MAX_INPUT_TOKENS=${LLM_MAX_INPUT_TOKENS:-4096}
 LLM_MAX_NEW_TOKENS=${LLM_MAX_NEW_TOKENS:-256}
 LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.0}
 LLM_TOP_P=${LLM_TOP_P:-1.0}
+LLM_ATTN_IMPLEMENTATION=${LLM_ATTN_IMPLEMENTATION:-eager}
 LLM_LOAD_IN_4BIT=${LLM_LOAD_IN_4BIT:-0}
 LLM_TRUST_REMOTE_CODE=${LLM_TRUST_REMOTE_CODE:-1}
+LLM_USE_FAST_TOKENIZER=${LLM_USE_FAST_TOKENIZER:-0}
 
 BERTSCORE=${BERTSCORE:-1}
 BERTSCORE_MODEL=${BERTSCORE_MODEL:-bert-base-multilingual-cased}
@@ -41,6 +43,9 @@ if [[ "$LLM_LOAD_IN_4BIT" == "1" ]]; then
 fi
 if [[ "$LLM_TRUST_REMOTE_CODE" == "1" ]]; then
   quant_args+=(--trust-remote-code)
+fi
+if [[ "$LLM_USE_FAST_TOKENIZER" == "1" ]]; then
+  quant_args+=(--use-fast-tokenizer)
 fi
 
 bert_args=(--bertscore-model "$BERTSCORE_MODEL" --bertscore-batch-size "$BERTSCORE_BATCH_SIZE")
@@ -68,6 +73,7 @@ for model in $MODELS; do
     --max-new-tokens "$LLM_MAX_NEW_TOKENS" \
     --temperature "$LLM_TEMPERATURE" \
     --top-p "$LLM_TOP_P" \
+    --attn-implementation "$LLM_ATTN_IMPLEMENTATION" \
     "${limit_args[@]}" \
     "${quant_args[@]}"
 

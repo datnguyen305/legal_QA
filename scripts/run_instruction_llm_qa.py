@@ -32,14 +32,22 @@ MODEL_ALIASES = {
 }
 
 
-def disable_optional_vision_imports() -> None:
-    """Avoid optional torchvision imports for text-only generation."""
+def disable_optional_compiled_imports(block_flash_attn: bool) -> None:
+    """Avoid optional compiled imports for text-only generation."""
     sys.modules["apex"] = None
     sys.modules["torchvision"] = None
+    if block_flash_attn:
+        sys.modules["flash_attn"] = None
+        sys.modules["flash_attn_2_cuda"] = None
     original_import = builtins.__import__
 
     def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "apex" or name.startswith("apex.") or name == "torchvision" or name.startswith("torchvision."):
+        blocked = name == "apex" or name.startswith("apex.") or name == "torchvision" or name.startswith("torchvision.")
+        blocked = blocked or (
+            block_flash_attn
+            and (name == "flash_attn" or name.startswith("flash_attn.") or name == "flash_attn_2_cuda")
+        )
+        if blocked:
             raise ImportError(f"{name} import disabled for text-only inference")
         return original_import(name, globals, locals, fromlist, level)
 
@@ -112,10 +120,15 @@ def main() -> None:
     parser.add_argument("--top-p", type=float, default=1.0)
     parser.add_argument("--load-in-4bit", action="store_true")
     parser.add_argument("--trust-remote-code", action="store_true")
+    parser.add_argument("--attn-implementation", default="eager", choices=["eager", "sdpa", "flash_attention_2"])
+    parser.add_argument("--use-fast-tokenizer", action="store_true")
     args = parser.parse_args()
 
     os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
-    disable_optional_vision_imports()
+    block_flash_attn = args.attn_implementation != "flash_attention_2"
+    if block_flash_attn:
+        os.environ.setdefault("FLASH_ATTENTION_SKIP_CUDA_BUILD", "TRUE")
+    disable_optional_compiled_imports(block_flash_attn=block_flash_attn)
     try:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -123,7 +136,11 @@ def main() -> None:
         raise SystemExit("Instruction LLM inference requires torch and transformers.") from exc
 
     model_name = MODEL_ALIASES.get(args.model, args.model)
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=args.trust_remote_code)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        trust_remote_code=args.trust_remote_code,
+        use_fast=args.use_fast_tokenizer,
+    )
     tokenizer.padding_side = "left"
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -131,6 +148,7 @@ def main() -> None:
     model_kwargs: dict[str, Any] = {
         "trust_remote_code": args.trust_remote_code,
         "torch_dtype": dtype_from_name(torch, args.dtype),
+        "attn_implementation": args.attn_implementation,
     }
     if args.device == "auto":
         model_kwargs["device_map"] = "auto"
