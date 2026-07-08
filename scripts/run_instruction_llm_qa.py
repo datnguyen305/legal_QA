@@ -182,9 +182,10 @@ def main() -> None:
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    model_dtype = dtype_from_name(torch, args.dtype)
     model_kwargs: dict[str, Any] = {
         "trust_remote_code": args.trust_remote_code,
-        "dtype": dtype_from_name(torch, args.dtype),
+        "dtype": model_dtype,
         "attn_implementation": args.attn_implementation,
     }
     if args.device == "auto":
@@ -194,7 +195,14 @@ def main() -> None:
     if args.load_in_4bit:
         model_kwargs["load_in_4bit"] = True
 
-    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    except TypeError as exc:
+        if "unexpected keyword argument 'dtype'" not in str(exc):
+            raise
+        model_kwargs.pop("dtype", None)
+        model_kwargs["torch_dtype"] = model_dtype
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
     model.eval()
 
     examples = load_examples(args.data, args.limit)
