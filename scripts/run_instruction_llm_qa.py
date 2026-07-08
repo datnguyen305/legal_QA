@@ -66,8 +66,8 @@ def dtype_from_name(torch: Any, name: str) -> Any:
     raise ValueError(f"Unsupported dtype: {name}")
 
 
-def make_prompt(question: str, context: str) -> list[dict[str, str]]:
-    system = (
+def make_prompt(question: str, context: str, include_system: bool = True) -> list[dict[str, str]]:
+    instruction = (
         "You are a Vietnamese legal QA assistant. Answer the question using only the provided legal context. "
         "If the context is insufficient, answer as concisely as possible from the context and do not invent facts."
     )
@@ -78,12 +78,22 @@ def make_prompt(question: str, context: str) -> list[dict[str, str]]:
         f"{question}\n\n"
         "Answer:"
     )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    if include_system:
+        return [{"role": "system", "content": instruction}, {"role": "user", "content": user}]
+    return [{"role": "user", "content": f"{instruction}\n\n{user}"}]
 
 
 def render_prompt(tokenizer: Any, messages: list[dict[str, str]]) -> str:
     if getattr(tokenizer, "chat_template", None):
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        try:
+            return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        except Exception as exc:
+            if "System role not supported" in str(exc):
+                system = messages[0]["content"] if messages and messages[0].get("role") == "system" else ""
+                user = messages[-1]["content"] if messages else ""
+                user_only = [{"role": "user", "content": f"{system}\n\n{user}".strip()}]
+                return tokenizer.apply_chat_template(user_only, tokenize=False, add_generation_prompt=True)
+            raise
     return f"{messages[0]['content']}\n\nUser: {messages[1]['content']}\nAssistant:"
 
 
@@ -101,6 +111,32 @@ def model_input_device(model: Any) -> Any:
         return next(model.parameters()).device
     except StopIteration:
         return getattr(model, "device", "cpu")
+
+
+def patch_phi_remote_code_compat() -> None:
+    """Provide typing-only symbols expected by some cached Phi remote modules."""
+    try:
+        from typing import TypedDict, Unpack
+    except ImportError:
+        return
+    try:
+        import transformers.modeling_flash_attention_utils as flash_utils
+        if not hasattr(flash_utils, "FlashAttentionKwargs"):
+            flash_utils.FlashAttentionKwargs = TypedDict("FlashAttentionKwargs", {}, total=False)
+    except Exception:
+        pass
+    try:
+        import transformers.processing_utils as processing_utils
+        if not hasattr(processing_utils, "Unpack"):
+            processing_utils.Unpack = Unpack
+    except Exception:
+        pass
+    try:
+        import transformers.utils as transformers_utils
+        if not hasattr(transformers_utils, "LossKwargs"):
+            transformers_utils.LossKwargs = TypedDict("LossKwargs", {}, total=False)
+    except Exception:
+        pass
 
 
 def main() -> None:
@@ -134,6 +170,7 @@ def main() -> None:
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as exc:
         raise SystemExit("Instruction LLM inference requires torch and transformers.") from exc
+    patch_phi_remote_code_compat()
 
     model_name = MODEL_ALIASES.get(args.model, args.model)
     tokenizer = AutoTokenizer.from_pretrained(
@@ -147,7 +184,7 @@ def main() -> None:
 
     model_kwargs: dict[str, Any] = {
         "trust_remote_code": args.trust_remote_code,
-        "torch_dtype": dtype_from_name(torch, args.dtype),
+        "dtype": dtype_from_name(torch, args.dtype),
         "attn_implementation": args.attn_implementation,
     }
     if args.device == "auto":
