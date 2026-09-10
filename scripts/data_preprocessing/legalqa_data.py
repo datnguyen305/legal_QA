@@ -46,6 +46,57 @@ def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _structured_document_text(data: dict[str, Any]) -> str:
+    """Serialize a structured legal document while preserving its hierarchy."""
+    parts: list[str] = []
+
+    def visit(value: Any, label: str | None = None) -> None:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                parts.append(f"{label}: {text}" if label else text)
+            return
+        if isinstance(value, (int, float)):
+            parts.append(f"{label}: {value}" if label else str(value))
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item, label)
+            return
+        if not isinstance(value, dict):
+            return
+
+        number = value.get("number")
+        title = value.get("title")
+        if number is not None:
+            parts.append(f"{label or 'Mục'} {number}")
+        if isinstance(title, str) and title.strip():
+            parts.append(title.strip())
+        for key, item in value.items():
+            if key not in {"number", "title"}:
+                visit(item, key)
+
+    for key, value in data.items():
+        visit(value, key)
+    return "\n".join(parts)
+
+
+def _resolve_structured_path(reference: Any, context_dir: str | Path) -> Path | None:
+    if not isinstance(reference, str) or not reference.strip():
+        return None
+    base = Path(context_dir)
+    reference_path = Path(reference)
+    candidates = (
+        reference_path,
+        base.parent / reference_path,
+        base.parent.parent / reference_path,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _extract_article_window(text: str, article: Any, max_chars: int | None) -> str:
     if not article:
         return text[:max_chars] if max_chars is not None else text
@@ -94,15 +145,21 @@ def load_context_texts(
     base = Path(context_dir)
     passages: list[str] = []
     for ctx in iter_context_metadata(example):
+        passage: str | None = None
+        structured_path = _resolve_structured_path(ctx.get("structured_path"), base)
+        if structured_path is not None:
+            with structured_path.open("r", encoding="utf-8") as f:
+                structured_data = json.load(f)
+            if isinstance(structured_data, dict):
+                passage = _structured_document_text(structured_data)
+
         content = ctx.get("content")
-        if not content:
-            continue
-        path = base / str(content)
-        if not path.exists():
-            continue
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        passage = data.get("passage") if isinstance(data, dict) else None
+        if passage is None and content:
+            path = base / str(content)
+            if path.exists():
+                with path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                passage = data.get("passage") if isinstance(data, dict) else None
         if not isinstance(passage, str):
             continue
         passage = _clean_text(passage)
